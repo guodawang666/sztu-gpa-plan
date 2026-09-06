@@ -9,6 +9,7 @@ import {
   type CourseAttempt, type CourseScorePlan, type GpaSummary, type TargetPlan,
 } from './lib/api';
 import { recogniseTranscriptImage } from './lib/ocr';
+import { selectTranscriptImages } from './lib/image-import';
 import {
   applyOcrConfidence, parseTranscriptOcrText, UI_EXAM_TYPES, UI_LETTER_GRADES, UI_PASS_FAIL_GRADES,
   type OcrCandidate, type UiExamType, type UiGrade,
@@ -150,10 +151,11 @@ function ImportPage({ onImport }: { onImport: (records: CourseAttempt[]) => void
   const [candidates, setCandidates] = useState<OcrCandidate[]>([]);
   const [ocrStatus, setOcrStatus] = useState('');
   const [busy, setBusy] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const parseText = () => setCandidates(parseTranscriptOcrText(rawText, semester));
-  const chooseImages = async (files: File[]) => {
+  const chooseImages = async (files: File[], rejectedCount = 0) => {
     setBusy(true); setOcrStatus('正在初始化本地识别引擎…');
     try {
       const results: Array<{ text: string; confidence: number }> = [];
@@ -164,8 +166,17 @@ function ImportPage({ onImport }: { onImport: (records: CourseAttempt[]) => void
       const combinedText = results.map((item) => item.text).join('\n');
       const averageConfidence = results.reduce((sum, item) => sum + item.confidence, 0) / results.length;
       setRawText(combinedText); setCandidates(applyOcrConfidence(parseTranscriptOcrText(combinedText, semester), averageConfidence));
-      setOcrStatus(`识别完成，共 ${results.length} 张，平均文本置信度 ${averageConfidence.toFixed(0)}%。请逐条核对。`);
+      const rejectedMessage = rejectedCount ? `，已忽略 ${rejectedCount} 个不支持的文件` : '';
+      setOcrStatus(`识别完成，共 ${results.length} 张${rejectedMessage}，平均文本置信度 ${averageConfidence.toFixed(0)}%。请逐条核对。`);
     } catch (error) { setOcrStatus(error instanceof Error ? `识别失败：${error.message}` : '识别失败，请尝试更清晰的图片。'); } finally { setBusy(false); }
+  };
+  const receiveFiles = (files: Iterable<File>) => {
+    const selected = selectTranscriptImages(files);
+    if (selected.accepted.length === 0) {
+      setOcrStatus('没有可识别的图片。请使用 PNG、JPG、WEBP、BMP 或静态 GIF。');
+      return;
+    }
+    void chooseImages(selected.accepted, selected.rejected.length);
   };
   const update = (id: string, key: keyof OcrCandidate, value: string) => setCandidates((items) => items.map((item) => {
     if (item.id !== id) return item;
@@ -188,7 +199,7 @@ function ImportPage({ onImport }: { onImport: (records: CourseAttempt[]) => void
   };
   return <>
     <header className="page-header"><div><p className="eyebrow">本地 OCR 导入</p><h1>从成绩截图开始</h1><p>图片在当前浏览器内识别；系统不会向你索要教务密码，也不会自动提交识别结果。</p></div></header>
-    <section className="panel import-panel"><div className="field-row"><label>成绩所属学期<input value={semester} onChange={(event) => setSemester(event.target.value)} /></label></div><button className="dropzone" onClick={() => fileInput.current?.click()} disabled={busy}><FileUp size={31} /><strong>{busy ? '正在识别截图…' : '上传教务系统成绩截图'}</strong><span>支持多张 JPG、PNG。初次识别会下载中文识别模型。</span></button><input className="hidden" ref={fileInput} type="file" accept="image/png,image/jpeg" multiple onChange={(event) => { const files = Array.from(event.target.files ?? []); if (files.length) void chooseImages(files); event.target.value = ''; }} />{ocrStatus && <p className="ocr-status" aria-live="polite">{ocrStatus}</p>}<div className="divider"><span>或</span></div><label>粘贴识别出的表格文字<textarea value={rawText} onChange={(event) => setRawText(event.target.value)} placeholder="例如：IB00166 微积分2 4 53 F 0 正常考试" rows={6} /></label><button className="secondary" onClick={parseText}>解析文本</button></section>
+    <section className="panel import-panel"><div className="field-row"><label>未识别学期时的默认值<input value={semester} onChange={(event) => setSemester(event.target.value)} /></label></div><button className={`dropzone ${dragActive ? 'drag-active' : ''}`} onClick={() => fileInput.current?.click()} onDragEnter={(event) => { event.preventDefault(); if (!busy) setDragActive(true); }} onDragOver={(event) => { event.preventDefault(); }} onDragLeave={() => setDragActive(false)} onDrop={(event) => { event.preventDefault(); setDragActive(false); if (!busy) receiveFiles(event.dataTransfer.files); }} disabled={busy}><FileUp size={31} /><strong>{busy ? '正在识别截图…' : dragActive ? '松开鼠标，开始识别' : '拖入成绩截图，或点击选择'}</strong><span>支持多张 PNG、JPG、WEBP、BMP 和静态 GIF；手机可从相册或文件中选择。</span></button><input className="hidden" ref={fileInput} type="file" accept="image/png,image/jpeg,image/webp,image/bmp,image/gif" multiple onChange={(event) => { const files = Array.from(event.target.files ?? []); if (files.length) receiveFiles(files); event.target.value = ''; }} />{ocrStatus && <p className="ocr-status" aria-live="polite">{ocrStatus}</p>}<div className="divider"><span>或</span></div><label>粘贴识别出的表格文字<textarea value={rawText} onChange={(event) => setRawText(event.target.value)} placeholder="例如：IB00166 微积分2 4 53 F 0 正常考试" rows={6} /></label><button className="secondary" onClick={parseText}>解析文本</button></section>
     {candidates.length > 0 && <section className="panel candidate-panel"><div className="panel-title"><div><h2>导入前核对</h2><p>每条记录必须勾选“已核对”才能导入。黄色提示请优先复查。</p></div><button className="primary" onClick={importRecords} disabled={candidates.some((item) => !item.confirmed)}>确认导入 {candidates.length} 条记录</button></div><div className="table-wrap"><table><thead><tr><th>课程</th><th>学分</th><th>成绩</th><th>等级</th><th>考试性质</th><th>状态</th><th>已核对</th></tr></thead><tbody>{candidates.map((item) => <tr key={item.id}><td><input aria-label={`${item.id} 课程号`} value={item.courseCode ?? ''} placeholder="课程号" onChange={(event) => update(item.id, 'courseCode', event.target.value)} /><input aria-label={`${item.id} 课程名称`} value={item.courseName} onChange={(event) => update(item.id, 'courseName', event.target.value)} /></td><td><input aria-label={`${item.courseName} 学分`} type="number" min="0" max="100" value={item.credits} onChange={(event) => update(item.id, 'credits', event.target.value)} /></td><td><input aria-label={`${item.courseName} 成绩`} type="number" min="0" max="100" value={item.score ?? ''} onChange={(event) => update(item.id, 'score', event.target.value)} /></td><td><select aria-label={`${item.courseName} 等级`} value={item.grade ?? ''} onChange={(event) => update(item.id, 'grade', event.target.value)}><option value="">待确认</option>{[...UI_LETTER_GRADES, ...UI_PASS_FAIL_GRADES].map((grade) => <option value={grade} key={grade}>{grade}</option>)}</select></td><td><select aria-label={`${item.courseName} 考试性质`} value={item.examType} onChange={(event) => update(item.id, 'examType', event.target.value)}>{UI_EXAM_TYPES.map((type) => <option value={type} key={type}>{type}</option>)}</select></td><td title={item.issues.join('。')}>{item.needsReview ? <span className="review">需核对</span> : <span className="verified">可导入</span>}</td><td><input aria-label={`${item.courseName} 已核对`} type="checkbox" checked={item.confirmed} onChange={(event) => setCandidates((items) => items.map((candidate) => candidate.id === item.id ? { ...candidate, confirmed: event.target.checked } : candidate))} /></td></tr>)}</tbody></table></div></section>}
   </>;
 }
