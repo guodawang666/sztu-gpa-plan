@@ -164,7 +164,7 @@ function parseLine(rawLine: string, index: number, semester: string): OcrCandida
     confirmed: false,
     ...(courseCode === undefined ? {} : { courseCode }),
     courseName: courseName || '待确认课程',
-    credits: credits ?? 0,
+    credits: credits ?? -1,
     ...(score === undefined ? {} : { score }),
     ...(grade === undefined ? {} : { grade }),
     ...(gradePoint === undefined ? {} : { gradePoint }),
@@ -186,10 +186,25 @@ export function applyOcrConfidence(candidates: OcrCandidate[], confidence: numbe
 }
 
 export function isImportableOcrCandidate(candidate: OcrCandidate): boolean {
-  return candidate.courseName.trim().length > 0
-    && (candidate.grade !== undefined || candidate.score !== undefined)
+  const courseName = candidate.courseName.trim();
+  const grade = candidate.grade as string | undefined;
+  const hasGrade = grade !== undefined
+    && [...UI_LETTER_GRADES, ...UI_PASS_FAIL_GRADES].includes(grade as UiGrade);
+  const hasScore = candidate.score !== undefined
+    && Number.isFinite(candidate.score)
+    && candidate.score >= 0
+    && candidate.score <= 100;
+  const gradeMatchesScore = !hasGrade || !hasScore
+    || isPassFail(candidate.grade)
+    || gradeFromScore(candidate.score!) === candidate.grade;
+
+  return courseName.length > 0
+    && courseName !== '待确认课程'
+    && (hasGrade || hasScore)
+    && gradeMatchesScore
     && Number.isFinite(candidate.credits)
-    && candidate.credits >= 0;
+    && candidate.credits >= 0
+    && candidate.credits <= 100;
 }
 
 export function confirmImportableCandidates(candidates: OcrCandidate[]): OcrCandidate[] {
@@ -197,6 +212,36 @@ export function confirmImportableCandidates(candidates: OcrCandidate[]): OcrCand
     ...candidate,
     confirmed: isImportableOcrCandidate(candidate),
   }));
+}
+
+function candidateFingerprint(candidate: OcrCandidate): string {
+  const courseIdentity = candidate.courseCode?.trim().toUpperCase()
+    || candidate.courseName.replace(/\s+/g, '').toUpperCase();
+  return JSON.stringify([
+    candidate.semester.trim(),
+    courseIdentity,
+    candidate.credits,
+    candidate.score ?? null,
+    candidate.grade ?? null,
+    candidate.examType,
+  ]);
+}
+
+export function deduplicateOcrCandidates(candidates: OcrCandidate[]): {
+  unique: OcrCandidate[];
+  duplicateCount: number;
+} {
+  const fingerprints = new Set<string>();
+  const unique: OcrCandidate[] = [];
+
+  for (const candidate of candidates) {
+    const fingerprint = candidateFingerprint(candidate);
+    if (fingerprints.has(fingerprint)) continue;
+    fingerprints.add(fingerprint);
+    unique.push(candidate);
+  }
+
+  return { unique, duplicateCount: candidates.length - unique.length };
 }
 
 export function parseTranscriptOcrText(text: string, semester: string): OcrCandidate[] {

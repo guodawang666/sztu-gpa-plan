@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   applyOcrConfidence,
   confirmImportableCandidates,
+  deduplicateOcrCandidates,
+  isImportableOcrCandidate,
   parseTranscriptOcrText,
 } from '../src/lib/ocr-parser';
 
@@ -156,5 +158,32 @@ describe('transcript OCR parser', () => {
     const confirmed = confirmImportableCandidates([complete, incomplete]);
 
     expect(confirmed.map((candidate) => candidate.confirmed)).toEqual([true, false]);
+  });
+
+  it('rejects placeholder names, empty runtime grades, and score-grade conflicts from bulk approval', () => {
+    const base = parseTranscriptOcrText('IB00166 微积分2 4 53 F 0 正常考试', '2023-2024-2')[0]!;
+
+    expect(isImportableOcrCandidate({ ...base, courseName: '待确认课程' })).toBe(false);
+    expect(isImportableOcrCandidate({ ...base, score: undefined, grade: '' as never })).toBe(false);
+    expect(isImportableOcrCandidate({ ...base, grade: 'A' })).toBe(false);
+  });
+
+  it('removes exact overlap rows while preserving distinct makeup attempts', () => {
+    const rows = parseTranscriptOcrText(
+      [
+        '27 2024-2025-2 IB00166 微积分2 64 D 4 72 1 补考',
+        '27 2024-2025-2 IB00166 微积分2 64 D 4 72 1 补考',
+        '28 2024-2025-2 IB00166 微积分2 53 F 4 72 0 正常考试',
+      ].join('\n'),
+      '2024-2025-2',
+    );
+
+    const result = deduplicateOcrCandidates(rows);
+
+    expect(result.duplicateCount).toBe(1);
+    expect(result.unique.map((candidate) => [candidate.score, candidate.examType])).toEqual([
+      [64, 'MAKEUP'],
+      [53, 'NORMAL'],
+    ]);
   });
 });

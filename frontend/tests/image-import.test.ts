@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { selectTranscriptImages } from '../src/lib/image-import';
+import {
+  deduplicateTranscriptImages,
+  prepareTranscriptImages,
+  selectTranscriptImages,
+} from '../src/lib/image-import';
 
 describe('transcript image selection', () => {
   it('keeps multiple supported screenshots and reports rejected files', () => {
@@ -14,5 +18,30 @@ describe('transcript image selection', () => {
       accepted: [files[0], files[1]],
       rejected: [files[2]],
     });
+  });
+
+  it('detects identical image content even when duplicate files have different names', async () => {
+    const files = [
+      new File(['same-image'], 'grades.png', { type: 'image/png' }),
+      new File(['same-image'], 'copy.png', { type: 'image/png' }),
+      new File(['different-image'], 'other.png', { type: 'image/png' }),
+    ];
+
+    const result = await deduplicateTranscriptImages(files);
+
+    expect(result.duplicateCount).toBe(1);
+    expect(result.unique).toEqual([files[0], files[2]]);
+  });
+
+  it('rejects a renamed non-image by its file signature before OCR', async () => {
+    const validPng = new File([
+      new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    ], 'valid.png', { type: 'image/png' });
+    const renamedText = new File(['not really an image'], 'fake.png', { type: 'image/png' });
+
+    const result = await prepareTranscriptImages([validPng, renamedText]);
+
+    expect(result.unique).toEqual([validPng]);
+    expect(result.rejected).toEqual([renamedText]);
   });
 });

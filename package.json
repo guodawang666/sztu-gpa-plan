@@ -8,6 +8,7 @@
   ],
   "scripts": {
     "dev": "concurrently -n api,web -c cyan,magenta \"npm run dev --workspace @sztu-gpa/backend\" \"npm run dev --workspace @sztu-gpa/frontend\"",
+    "dev:network": "concurrently -n api,web -c cyan,magenta \"npm run dev --workspace @sztu-gpa/backend\" \"npm run dev:network --workspace @sztu-gpa/frontend\"",
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present"

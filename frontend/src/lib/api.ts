@@ -60,12 +60,22 @@ interface ApiErrorResponse {
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? '';
 
 async function post<T>(path: string, body: unknown): Promise<T> {
-  const response = await fetch(`${apiBaseUrl}${path}`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  const payload = await response.json() as T & ApiErrorResponse;
+  let response: Response;
+  try {
+    response = await fetch(`${apiBaseUrl}${path}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new Error('无法连接计算服务，请确认后端已经启动。');
+  }
+  let payload: T & ApiErrorResponse;
+  try {
+    payload = await response.json() as T & ApiErrorResponse;
+  } catch {
+    throw new Error(response.ok ? '计算服务返回了无法识别的数据。' : '计算服务暂时不可用。');
+  }
   if (!response.ok) throw new Error(payload.error?.message ?? '后端暂时无法处理请求。');
   return payload;
 }
