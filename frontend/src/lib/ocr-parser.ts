@@ -34,23 +34,37 @@ const gradePoints: Record<UiLetterGrade, number> = {
   F: 0,
 };
 
-const codePattern = /\b[A-Z]{1,5}\d{4,10}\b/i;
+const codePattern = /^[A-Z1L]{1,5}\d{4,10}$/i;
 const numericToken = /^\d+(?:\.\d+)?$/;
 const letterGradeToken = /^(A\+|B\+|C\+|A|B|C|D|F|P|NP)$/i;
 
 function examTypeFromLine(line: string): UiExamType {
-  if (/补考/.test(line)) return 'MAKEUP';
-  if (/重修/.test(line)) return 'RETAKE';
-  if (/缓考/.test(line)) return 'DEFERRED';
-  if (/转学分|认定|替代/.test(line)) return 'TRANSFER';
+  const compactLine = line.replace(/\s+/g, '');
+  if (/补考/.test(compactLine)) return 'MAKEUP';
+  if (/重修/.test(compactLine)) return 'RETAKE';
+  if (/缓考/.test(compactLine)) return 'DEFERRED';
+  if (/转学分|认定|替代/.test(compactLine)) return 'TRANSFER';
   return 'NORMAL';
 }
 
-function gradeFromLine(tokens: string[], line: string): UiGrade | undefined {
-  if (/不通过|\bNP\b/i.test(line)) return 'NP';
-  if (/通过|\bPASS\b/i.test(line)) return 'P';
-  const token = tokens.find((value) => letterGradeToken.test(value));
-  return token?.toUpperCase() as UiGrade | undefined;
+function gradePositionFromLine(tokens: string[], line: string): { grade?: UiGrade; index: number } {
+  const compactLine = line.replace(/\s+/g, '');
+  if (/不通过|\bNP\b/i.test(compactLine)) {
+    return { grade: 'NP', index: tokens.findIndex((token) => /^(不通过|通过|NP)$/i.test(token)) };
+  }
+  if (/通过|\bPASS\b/i.test(compactLine)) {
+    return { grade: 'P', index: tokens.findIndex((token) => /^(通过|PASS)$/i.test(token)) };
+  }
+
+  const index = tokens.findIndex((value, tokenIndex) => {
+    const previousToken = tokens[tokenIndex - 1];
+    return letterGradeToken.test(value)
+      && previousToken !== undefined
+      && numericToken.test(previousToken)
+      && Number(previousToken) <= 100;
+  });
+  if (index < 0) return { index: -1 };
+  return { grade: tokens[index]!.toUpperCase() as UiGrade, index };
 }
 
 function gradeFromScore(score: number): UiLetterGrade {
@@ -68,37 +82,67 @@ function isPassFail(grade: UiGrade | undefined): grade is UiPassFailGrade {
   return grade === 'P' || grade === 'NP';
 }
 
+function normaliseCourseCode(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  return value.toUpperCase().replace(/^[1L]B(?=\d)/, 'IB');
+}
+
+function normaliseCourseName(tokens: string[]): string {
+  return tokens
+    .join(' ')
+    .replace(/\(\s*/g, '（')
+    .replace(/\s*\)/g, '）')
+    .replace(/([\p{Script=Han}])\s+(?=[\p{Script=Han}\d）])/gu, '$1')
+    .replace(/\s*（\s*/g, '（')
+    .replace(/\s+）/g, '）')
+    .trim();
+}
+
 function parseLine(rawLine: string, index: number, semester: string): OcrCandidate | undefined {
   const line = rawLine.replace(/\s+/g, ' ').trim();
   if (!line) return undefined;
 
-  const courseCode = line.match(codePattern)?.[0]?.toUpperCase();
   const tokens = line.split(' ');
-  const grade = gradeFromLine(tokens, line);
-  const numberTokens = tokens
+  const recognisedSemester = tokens.find((token) => /^20\d{2}-20\d{2}-[12]$/.test(token));
+  const codeIndex = tokens.findIndex((token) => codePattern.test(token));
+  const courseCode = normaliseCourseCode(codeIndex >= 0 ? tokens[codeIndex] : undefined);
+  const { grade, index: gradeIndex } = gradePositionFromLine(tokens, line);
+
+  if (gradeIndex < 0 && !courseCode) return undefined;
+
+  const numbersAfterGrade = tokens
+    .slice(gradeIndex + 1)
     .filter((token) => numericToken.test(token))
-    .map(Number)
-    .filter((value) => Number.isFinite(value));
-
-  const credits = numberTokens.find((value) => value >= 0 && value <= 30);
-  const numericPosition = credits === undefined ? -1 : numberTokens.indexOf(credits);
-  const score = isPassFail(grade)
+    .map(Number);
+  const hasSztuTableOrder = gradeIndex >= 0 && numbersAfterGrade.length >= 2;
+  const scoreToken = tokens[gradeIndex - 1];
+  const score = !isPassFail(grade) && scoreToken !== undefined && numericToken.test(scoreToken)
+    ? Number(scoreToken)
+    : undefined;
+  const legacyCreditsIndex = isPassFail(grade) ? gradeIndex - 1 : gradeIndex - 2;
+  const legacyCreditsToken = tokens[legacyCreditsIndex];
+  const credits = hasSztuTableOrder
+    ? numbersAfterGrade[0]
+    : legacyCreditsToken !== undefined && numericToken.test(legacyCreditsToken)
+      ? Number(legacyCreditsToken)
+      : undefined;
+  const recognisedGradePoint = isPassFail(grade)
     ? undefined
-    : numberTokens.slice(numericPosition + 1).find((value) => value >= 0 && value <= 100);
-  const gradePoint = isPassFail(grade)
-    ? undefined
-    : numberTokens.slice(numericPosition + 2).find((value) => value >= 0 && value <= 4.5);
+    : hasSztuTableOrder
+      ? numbersAfterGrade[2]
+      : numbersAfterGrade[0];
+  const gradePoint = grade === undefined || isPassFail(grade) ? undefined : gradePoints[grade];
 
-  const ignoredTokens = new Set<string>([
-    courseCode ?? '',
-    ...(numberTokens.map(String)),
-    ...(grade === undefined ? [] : [grade]),
-    '正常考试', '补考', '重修', '缓考', '转学分', '认定', '替代', '通过', '不通过', 'PASS', 'NP',
-  ]);
-  const courseName = tokens
-    .filter((token) => !ignoredTokens.has(token.toUpperCase()) && !ignoredTokens.has(token))
-    .join(' ')
-    .trim();
+  let nameStart = codeIndex >= 0 ? codeIndex + 1 : 0;
+  while (nameStart < gradeIndex) {
+    const nameToken = tokens[nameStart];
+    if (nameToken === undefined || (!/^\d+$/.test(nameToken) && !/^20\d{2}-20\d{2}-[12]$/.test(nameToken))) break;
+    nameStart += 1;
+  }
+  const nameEnd = hasSztuTableOrder
+    ? gradeIndex - (isPassFail(grade) ? 0 : 1)
+    : Math.max(nameStart, legacyCreditsIndex);
+  const courseName = normaliseCourseName(tokens.slice(nameStart, nameEnd));
 
   if (!courseName && credits === undefined && grade === undefined) return undefined;
 
@@ -110,18 +154,13 @@ function parseLine(rawLine: string, index: number, semester: string): OcrCandida
   if (score !== undefined && grade !== undefined && !isPassFail(grade) && gradeFromScore(score) !== grade) {
     issues.push('分数与等级不符合 SZTU 映射');
   }
-  if (
-    gradePoint !== undefined
-    && grade !== undefined
-    && !isPassFail(grade)
-    && gradePoints[grade] !== gradePoint
-  ) {
-    issues.push('导入绩点与 SZTU 映射不一致');
+  if (recognisedGradePoint !== undefined && gradePoint !== undefined && recognisedGradePoint !== gradePoint) {
+    issues.push(`OCR 绩点 ${recognisedGradePoint} 已按 SZTU 映射纠正为 ${gradePoint}`);
   }
 
   return {
     id: `ocr-${index + 1}`,
-    semester,
+    semester: recognisedSemester ?? semester,
     confirmed: false,
     ...(courseCode === undefined ? {} : { courseCode }),
     courseName: courseName || '待确认课程',
@@ -137,7 +176,7 @@ function parseLine(rawLine: string, index: number, semester: string): OcrCandida
 }
 
 export function applyOcrConfidence(candidates: OcrCandidate[], confidence: number): OcrCandidate[] {
-  if (confidence >= 82) return candidates;
+  if (confidence >= 70) return candidates;
   const issue = `OCR 置信度较低（${Math.round(confidence)}%）`;
   return candidates.map((candidate) => ({
     ...candidate,
