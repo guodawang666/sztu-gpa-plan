@@ -1,0 +1,15 @@
+{
+  "name": "sztu-gpa-planner",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "backend"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace @sztu-gpa/backend",
+    "build": "npm run build --workspace @sztu-gpa/backend",
+    "test": "npm run test --workspace @sztu-gpa/backend",
+    "typecheck": "npm run typecheck --workspace @sztu-gpa/backend"
+  }
+}
+
