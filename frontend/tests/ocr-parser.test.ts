@@ -166,6 +166,7 @@ describe('transcript OCR parser', () => {
     expect(isImportableOcrCandidate({ ...base, courseName: '待确认课程' })).toBe(false);
     expect(isImportableOcrCandidate({ ...base, score: undefined, grade: '' as never })).toBe(false);
     expect(isImportableOcrCandidate({ ...base, grade: 'A' })).toBe(false);
+    expect(isImportableOcrCandidate({ ...base, semester: '' })).toBe(false);
   });
 
   it('removes exact overlap rows while preserving distinct makeup attempts', () => {
@@ -185,5 +186,12 @@ describe('transcript OCR parser', () => {
       [64, 'MAKEUP'],
       [53, 'NORMAL'],
     ]);
+  });
+
+  it('does not auto-merge rows when the course code is missing', () => {
+    const base = parseTranscriptOcrText('微积分2 4 53 F 0 正常考试', '2023-2024-2')[0]!;
+    const result = deduplicateOcrCandidates([base, { ...base, id: 'second-attempt' }]);
+    expect(result.duplicateCount).toBe(0);
+    expect(result.unique).toHaveLength(2);
   });
 });

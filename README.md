@@ -15,6 +15,8 @@
 
 ## 本地运行
 
+环境要求：Node.js `^20.19.0` 或 `>=22.12.0`，以及 npm。
+
 ```bash
 npm install
 npm run dev
@@ -30,6 +32,10 @@ npm run dev:network
 
 然后在手机浏览器打开终端显示的局域网地址。正式部署后，电脑和手机直接访问同一个 HTTPS 网页即可。
 
+## 生产部署
+
+先运行 `npm run build`。将 `frontend/dist` 作为静态网站部署，并运行 `npm start --workspace @sztu-gpa/backend` 启动 API；网关需把网页的 `/api/*` 和 `/health` 转发至后端。若前后端使用不同域名，请在构建前设置 `VITE_API_BASE_URL` 为 API 的 HTTPS 地址，并按部署域名收紧后端 CORS。
+
 ## 浏览器与设备
 
 - 支持现代 Chrome、Edge、Firefox、Safari 及相应的手机浏览器。
@@ -37,6 +43,7 @@ npm run dev:network
 - 电脑端可拖入一张或多张截图，也可点击选择文件。
 - 手机端点击上传区后可从相册或“文件”中选择截图。
 - 支持 PNG、JPG/JPEG、WEBP、BMP 和静态 GIF；暂不直接支持 HEIC。
+- 每批最多 8 张，单张不超过 12 MB，总计不超过 60 MB，避免手机浏览器内存不足。
 - 成绩数据保存在当前浏览器中，同一账号在不同电脑或手机之间暂不会自动同步，可通过 JSON 备份迁移。
 
 ## 截图 OCR 说明

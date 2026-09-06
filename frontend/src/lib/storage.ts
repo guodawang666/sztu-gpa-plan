@@ -54,12 +54,3 @@ export function parseBackupText(text: string): CourseAttempt[] {
 export function createBackupText(attempts: CourseAttempt[]): string {
   return JSON.stringify({ version: 1, attempts }, null, 2);
 }
-
-export function readStoredAttempts(text: string | null): CourseAttempt[] {
-  if (!text) return [];
-  try {
-    return parseBackupText(text);
-  } catch {
-    return [];
-  }
-}

@@ -1,12 +1,15 @@
 const supportedImageTypes = new Set([
-  'image/bmp',
-  'image/gif',
-  'image/jpeg',
-  'image/png',
-  'image/webp',
+  "image/bmp",
+  "image/gif",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
 ]);
 
 const supportedImageExtension = /\.(?:bmp|gif|jpe?g|png|webp)$/i;
+export const MAX_TRANSCRIPT_IMAGES = 8;
+export const MAX_TRANSCRIPT_IMAGE_BYTES = 12 * 1024 * 1024;
+export const MAX_TRANSCRIPT_BATCH_BYTES = 60 * 1024 * 1024;
 
 export function selectTranscriptImages(files: Iterable<File>): {
   accepted: File[];
@@ -15,10 +18,21 @@ export function selectTranscriptImages(files: Iterable<File>): {
   const accepted: File[] = [];
   const rejected: File[] = [];
 
+  let acceptedBytes = 0;
   for (const file of files) {
-    const supported = supportedImageTypes.has(file.type.toLowerCase())
-      || (!file.type && supportedImageExtension.test(file.name));
-    (supported ? accepted : rejected).push(file);
+    const supported =
+      supportedImageTypes.has(file.type.toLowerCase()) ||
+      supportedImageExtension.test(file.name);
+    const withinLimits =
+      file.size <= MAX_TRANSCRIPT_IMAGE_BYTES &&
+      accepted.length < MAX_TRANSCRIPT_IMAGES &&
+      acceptedBytes + file.size <= MAX_TRANSCRIPT_BATCH_BYTES;
+    if (supported && withinLimits) {
+      accepted.push(file);
+      acceptedBytes += file.size;
+    } else {
+      rejected.push(file);
+    }
   }
 
   return { accepted, rejected };
@@ -26,15 +40,16 @@ export function selectTranscriptImages(files: Iterable<File>): {
 
 function hasSupportedImageSignature(buffer: ArrayBuffer): boolean {
   const bytes = new Uint8Array(buffer, 0, Math.min(buffer.byteLength, 12));
-  const ascii = (start: number, length: number) => String.fromCharCode(...bytes.slice(start, start + length));
+  const ascii = (start: number, length: number) =>
+    String.fromCharCode(...bytes.slice(start, start + length));
 
   return (
-    (bytes[0] === 0x89 && ascii(1, 3) === 'PNG')
-    || (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff)
-    || ascii(0, 2) === 'BM'
-    || ascii(0, 6) === 'GIF87a'
-    || ascii(0, 6) === 'GIF89a'
-    || (ascii(0, 4) === 'RIFF' && ascii(8, 4) === 'WEBP')
+    (bytes[0] === 0x89 && ascii(1, 3) === "PNG") ||
+    (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) ||
+    ascii(0, 2) === "BM" ||
+    ascii(0, 6) === "GIF87a" ||
+    ascii(0, 6) === "GIF89a" ||
+    (ascii(0, 4) === "RIFF" && ascii(8, 4) === "WEBP")
   );
 }
 

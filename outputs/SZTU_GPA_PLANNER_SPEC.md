@@ -243,7 +243,7 @@ unknownScore =
   （S_target - Σ（knownScore_i × weight_i））/ unknownWeight
 ```
 
-要求所有权重之和为 100%，并支持多个未知考核项；当 `unknownScore > 100` 时提示目标不可达，当结果 `< 0` 时提示目标已由已知成绩保证。
+要求所有权重之和为 100%，第一版每次保留且仅保留一个未知考核项；当 `unknownScore > 100` 时提示目标不可达，当结果 `< 0` 时提示目标已由已知成绩保证。多个未知项没有唯一解，后续若实现需明确采用“所有未知项同分”或由用户指定分配方案。
 
 ## 8. 推荐数据结构
 
@@ -312,7 +312,7 @@ interface CalculationPolicy {
 
 - 按学期分组的课程表。
 - 每门课程显示课程号、名称、学分、成绩、等级、绩点、是否计入 GPA、是否获得学分。
-- 支持手动新增、编辑、删除。
+- 支持手动新增、删除；OCR 导入前支持逐字段编辑。
 - 支持同一课程展开查看多个 attempt。
 - MVP 支持粘贴表格文本；截图 OCR 和教务系统自动登录导入放到后续版本。
 
@@ -601,4 +601,3 @@ src/
 - [viiccwen/GPA-calculator](https://github.com/viiccwen/GPA-calculator)
 - [johenking/grade-planner](https://github.com/johenking/grade-planner)
 - [5uhag/gpa-calculator](https://github.com/5uhag/gpa-calculator)
-

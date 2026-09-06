@@ -20,6 +20,18 @@ describe('transcript image selection', () => {
     });
   });
 
+  it('accepts a valid extension with a generic mobile MIME type', () => {
+    const mobileScreenshot = new File(['png'], 'Screenshot.png', { type: 'application/octet-stream' });
+    expect(selectTranscriptImages([mobileScreenshot]).accepted).toEqual([mobileScreenshot]);
+  });
+
+  it('limits oversized or excessive mobile batches before reading image bytes', () => {
+    const files = Array.from({ length: 9 }, (_, index) => new File(['x'], `${index}.png`, { type: 'image/png' }));
+    const selected = selectTranscriptImages(files);
+    expect(selected.accepted).toHaveLength(8);
+    expect(selected.rejected).toEqual([files[8]]);
+  });
+
   it('detects identical image content even when duplicate files have different names', async () => {
     const files = [
       new File(['same-image'], 'grades.png', { type: 'image/png' }),
