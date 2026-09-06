@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { applyOcrConfidence, parseTranscriptOcrText } from '../src/lib/ocr-parser';
+import {
+  applyOcrConfidence,
+  confirmImportableCandidates,
+  parseTranscriptOcrText,
+} from '../src/lib/ocr-parser';
 
 describe('transcript OCR parser', () => {
   it('turns a recognised normal-exam row into a reviewable course attempt', () => {
@@ -143,5 +147,14 @@ describe('transcript OCR parser', () => {
     const reviewed = applyOcrConfidence(candidates, 79);
 
     expect(reviewed[0]?.needsReview).toBe(false);
+  });
+
+  it('confirms every complete OCR row in one action but leaves incomplete rows unchecked', () => {
+    const complete = parseTranscriptOcrText('IB00166 微积分2 4 53 F 0 正常考试', '2023-2024-2')[0]!;
+    const incomplete = { ...complete, id: 'incomplete', courseName: '' };
+
+    const confirmed = confirmImportableCandidates([complete, incomplete]);
+
+    expect(confirmed.map((candidate) => candidate.confirmed)).toEqual([true, false]);
   });
 });

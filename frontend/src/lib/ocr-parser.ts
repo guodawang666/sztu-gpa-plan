@@ -185,6 +185,20 @@ export function applyOcrConfidence(candidates: OcrCandidate[], confidence: numbe
   }));
 }
 
+export function isImportableOcrCandidate(candidate: OcrCandidate): boolean {
+  return candidate.courseName.trim().length > 0
+    && (candidate.grade !== undefined || candidate.score !== undefined)
+    && Number.isFinite(candidate.credits)
+    && candidate.credits >= 0;
+}
+
+export function confirmImportableCandidates(candidates: OcrCandidate[]): OcrCandidate[] {
+  return candidates.map((candidate) => ({
+    ...candidate,
+    confirmed: isImportableOcrCandidate(candidate),
+  }));
+}
+
 export function parseTranscriptOcrText(text: string, semester: string): OcrCandidate[] {
   return text
     .split(/\r?\n/)
