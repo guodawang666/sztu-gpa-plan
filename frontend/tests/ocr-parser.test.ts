@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseTranscriptOcrText } from '../src/lib/ocr-parser';
+import { applyOcrConfidence, parseTranscriptOcrText } from '../src/lib/ocr-parser';
 
 describe('transcript OCR parser', () => {
   it('turns a recognised normal-exam row into a reviewable course attempt', () => {
@@ -18,9 +18,21 @@ describe('transcript OCR parser', () => {
         grade: 'F',
         gradePoint: 0,
         examType: 'NORMAL',
+        confirmed: false,
         needsReview: false,
       }),
     ]);
+  });
+
+  it('marks every parsed row for review when the recognised image confidence is low', () => {
+    const candidates = parseTranscriptOcrText('IB00166 微积分2 4 53 F 0 正常考试', '2023-2024-2');
+    const reviewed = applyOcrConfidence(candidates, 64);
+
+    expect(reviewed[0]).toMatchObject({
+      needsReview: true,
+      confirmed: false,
+      issues: expect.arrayContaining(['OCR 置信度较低（64%）']),
+    });
   });
 
   it('keeps makeup attempts as separate review records and flags uncertain rows', () => {

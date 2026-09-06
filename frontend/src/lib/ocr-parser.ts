@@ -10,6 +10,7 @@ export type UiExamType = (typeof UI_EXAM_TYPES)[number];
 export interface OcrCandidate {
   id: string;
   semester: string;
+  confirmed: boolean;
   courseCode?: string;
   courseName: string;
   credits: number;
@@ -121,6 +122,7 @@ function parseLine(rawLine: string, index: number, semester: string): OcrCandida
   return {
     id: `ocr-${index + 1}`,
     semester,
+    confirmed: false,
     ...(courseCode === undefined ? {} : { courseCode }),
     courseName: courseName || '待确认课程',
     credits: credits ?? 0,
@@ -132,6 +134,16 @@ function parseLine(rawLine: string, index: number, semester: string): OcrCandida
     issues,
     rawLine: line,
   };
+}
+
+export function applyOcrConfidence(candidates: OcrCandidate[], confidence: number): OcrCandidate[] {
+  if (confidence >= 82) return candidates;
+  const issue = `OCR 置信度较低（${Math.round(confidence)}%）`;
+  return candidates.map((candidate) => ({
+    ...candidate,
+    needsReview: true,
+    issues: candidate.issues.includes(issue) ? candidate.issues : [...candidate.issues, issue],
+  }));
 }
 
 export function parseTranscriptOcrText(text: string, semester: string): OcrCandidate[] {

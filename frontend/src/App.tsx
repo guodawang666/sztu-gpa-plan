@@ -10,9 +10,10 @@ import {
 } from './lib/api';
 import { recogniseTranscriptImage } from './lib/ocr';
 import {
-  parseTranscriptOcrText, UI_EXAM_TYPES, UI_LETTER_GRADES, UI_PASS_FAIL_GRADES,
+  applyOcrConfidence, parseTranscriptOcrText, UI_EXAM_TYPES, UI_LETTER_GRADES, UI_PASS_FAIL_GRADES,
   type OcrCandidate, type UiExamType, type UiGrade,
 } from './lib/ocr-parser';
+import { createBackupText, parseBackupText, readStoredAttempts } from './lib/storage';
 
 type Page = 'dashboard' | 'import' | 'courses' | 'target' | 'simulator' | 'course-score' | 'rules';
 
@@ -48,12 +49,7 @@ const initialManual = {
 };
 
 function localAttempts(): CourseAttempt[] {
-  try {
-    const value = localStorage.getItem(STORAGE_KEY);
-    return value ? JSON.parse(value) as CourseAttempt[] : [];
-  } catch {
-    return [];
-  }
+  return readStoredAttempts(localStorage.getItem(STORAGE_KEY));
 }
 
 function newId(prefix = 'attempt'): string {
@@ -79,7 +75,7 @@ function App() {
   const [summaryError, setSummaryError] = useState('');
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(attempts));
+    localStorage.setItem(STORAGE_KEY, createBackupText(attempts));
     let ignore = false;
     if (attempts.length === 0) {
       setSummary(emptySummary);
@@ -167,7 +163,7 @@ function ImportPage({ onImport }: { onImport: (records: CourseAttempt[]) => void
       }
       const combinedText = results.map((item) => item.text).join('\n');
       const averageConfidence = results.reduce((sum, item) => sum + item.confidence, 0) / results.length;
-      setRawText(combinedText); setCandidates(parseTranscriptOcrText(combinedText, semester));
+      setRawText(combinedText); setCandidates(applyOcrConfidence(parseTranscriptOcrText(combinedText, semester), averageConfidence));
       setOcrStatus(`识别完成，共 ${results.length} 张，平均文本置信度 ${averageConfidence.toFixed(0)}%。请逐条核对。`);
     } catch (error) { setOcrStatus(error instanceof Error ? `识别失败：${error.message}` : '识别失败，请尝试更清晰的图片。'); } finally { setBusy(false); }
   };
@@ -175,15 +171,15 @@ function ImportPage({ onImport }: { onImport: (records: CourseAttempt[]) => void
     if (item.id !== id) return item;
     if (key === 'credits') return { ...item, credits: Number(value), needsReview: true };
     if (key === 'score' || key === 'gradePoint') {
-      if (value.trim() === '') { const { [key]: _removed, ...rest } = item; return { ...rest, needsReview: true }; }
-      return { ...item, [key]: Number(value), needsReview: true };
+      if (value.trim() === '') { const { [key]: _removed, ...rest } = item; return { ...rest, needsReview: true, confirmed: false }; }
+      return { ...item, [key]: Number(value), needsReview: true, confirmed: false };
     }
-    if (key === 'courseCode' && value.trim() === '') { const { courseCode: _removed, ...rest } = item; return { ...rest, needsReview: true }; }
-    return { ...item, [key]: value, needsReview: true };
+    if (key === 'courseCode' && value.trim() === '') { const { courseCode: _removed, ...rest } = item; return { ...rest, needsReview: true, confirmed: false }; }
+    return { ...item, [key]: value, needsReview: true, confirmed: false };
   }));
   const importRecords = () => {
-    const invalid = candidates.some((item) => !item.courseName || (!item.grade && item.score === undefined) || item.credits < 0);
-    if (invalid) { setOcrStatus('仍有记录缺少课程名称、成绩或等级；请修正后再导入。'); return; }
+    const invalid = candidates.some((item) => !item.courseName || (!item.grade && item.score === undefined) || item.credits < 0 || !item.confirmed);
+    if (invalid) { setOcrStatus('每条记录都需要补全必填字段并勾选“已核对”后才能导入。'); return; }
     onImport(candidates.map((item) => ({
       id: newId('import'), courseName: item.courseName, semester: item.semester, credits: item.credits, examType: item.examType,
       ...(item.courseCode === undefined ? {} : { courseCode: item.courseCode }), ...(item.score === undefined ? {} : { score: item.score }),
@@ -192,8 +188,8 @@ function ImportPage({ onImport }: { onImport: (records: CourseAttempt[]) => void
   };
   return <>
     <header className="page-header"><div><p className="eyebrow">本地 OCR 导入</p><h1>从成绩截图开始</h1><p>图片在当前浏览器内识别；系统不会向你索要教务密码，也不会自动提交识别结果。</p></div></header>
-    <section className="panel import-panel"><div className="field-row"><label>成绩所属学期<input value={semester} onChange={(event) => setSemester(event.target.value)} /></label></div><button className="dropzone" onClick={() => fileInput.current?.click()} disabled={busy}><FileUp size={31} /><strong>{busy ? '正在识别截图…' : '上传教务系统成绩截图'}</strong><span>支持多张 JPG、PNG。初次识别会下载中文识别模型。</span></button><input className="hidden" ref={fileInput} type="file" accept="image/png,image/jpeg" multiple onChange={(event) => { const files = Array.from(event.target.files ?? []); if (files.length) void chooseImages(files); event.target.value = ''; }} />{ocrStatus && <p className="ocr-status">{ocrStatus}</p>}<div className="divider"><span>或</span></div><label>粘贴识别出的表格文字<textarea value={rawText} onChange={(event) => setRawText(event.target.value)} placeholder="例如：IB00166 微积分2 4 53 F 0 正常考试" rows={6} /></label><button className="secondary" onClick={parseText}>解析文本</button></section>
-    {candidates.length > 0 && <section className="panel candidate-panel"><div className="panel-title"><div><h2>导入前核对</h2><p>紫色提示代表补考/重修；黄色项目请手动复核。</p></div><button className="primary" onClick={importRecords}>确认导入 {candidates.length} 条记录</button></div><div className="table-wrap"><table><thead><tr><th>课程</th><th>学分</th><th>成绩</th><th>等级</th><th>考试性质</th><th>状态</th></tr></thead><tbody>{candidates.map((item) => <tr key={item.id}><td><input value={item.courseCode ?? ''} placeholder="课程号" onChange={(event) => update(item.id, 'courseCode', event.target.value)} /><input value={item.courseName} onChange={(event) => update(item.id, 'courseName', event.target.value)} /></td><td><input type="number" min="0" max="100" value={item.credits} onChange={(event) => update(item.id, 'credits', event.target.value)} /></td><td><input type="number" min="0" max="100" value={item.score ?? ''} onChange={(event) => update(item.id, 'score', event.target.value)} /></td><td><select value={item.grade ?? ''} onChange={(event) => update(item.id, 'grade', event.target.value)}><option value="">待确认</option>{[...UI_LETTER_GRADES, ...UI_PASS_FAIL_GRADES].map((grade) => <option value={grade} key={grade}>{grade}</option>)}</select></td><td><select value={item.examType} onChange={(event) => update(item.id, 'examType', event.target.value)}>{UI_EXAM_TYPES.map((type) => <option value={type} key={type}>{type}</option>)}</select></td><td>{item.needsReview ? <span className="review">需核对</span> : <span className="verified">可导入</span>}</td></tr>)}</tbody></table></div></section>}
+    <section className="panel import-panel"><div className="field-row"><label>成绩所属学期<input value={semester} onChange={(event) => setSemester(event.target.value)} /></label></div><button className="dropzone" onClick={() => fileInput.current?.click()} disabled={busy}><FileUp size={31} /><strong>{busy ? '正在识别截图…' : '上传教务系统成绩截图'}</strong><span>支持多张 JPG、PNG。初次识别会下载中文识别模型。</span></button><input className="hidden" ref={fileInput} type="file" accept="image/png,image/jpeg" multiple onChange={(event) => { const files = Array.from(event.target.files ?? []); if (files.length) void chooseImages(files); event.target.value = ''; }} />{ocrStatus && <p className="ocr-status" aria-live="polite">{ocrStatus}</p>}<div className="divider"><span>或</span></div><label>粘贴识别出的表格文字<textarea value={rawText} onChange={(event) => setRawText(event.target.value)} placeholder="例如：IB00166 微积分2 4 53 F 0 正常考试" rows={6} /></label><button className="secondary" onClick={parseText}>解析文本</button></section>
+    {candidates.length > 0 && <section className="panel candidate-panel"><div className="panel-title"><div><h2>导入前核对</h2><p>每条记录必须勾选“已核对”才能导入。黄色提示请优先复查。</p></div><button className="primary" onClick={importRecords} disabled={candidates.some((item) => !item.confirmed)}>确认导入 {candidates.length} 条记录</button></div><div className="table-wrap"><table><thead><tr><th>课程</th><th>学分</th><th>成绩</th><th>等级</th><th>考试性质</th><th>状态</th><th>已核对</th></tr></thead><tbody>{candidates.map((item) => <tr key={item.id}><td><input aria-label={`${item.id} 课程号`} value={item.courseCode ?? ''} placeholder="课程号" onChange={(event) => update(item.id, 'courseCode', event.target.value)} /><input aria-label={`${item.id} 课程名称`} value={item.courseName} onChange={(event) => update(item.id, 'courseName', event.target.value)} /></td><td><input aria-label={`${item.courseName} 学分`} type="number" min="0" max="100" value={item.credits} onChange={(event) => update(item.id, 'credits', event.target.value)} /></td><td><input aria-label={`${item.courseName} 成绩`} type="number" min="0" max="100" value={item.score ?? ''} onChange={(event) => update(item.id, 'score', event.target.value)} /></td><td><select aria-label={`${item.courseName} 等级`} value={item.grade ?? ''} onChange={(event) => update(item.id, 'grade', event.target.value)}><option value="">待确认</option>{[...UI_LETTER_GRADES, ...UI_PASS_FAIL_GRADES].map((grade) => <option value={grade} key={grade}>{grade}</option>)}</select></td><td><select aria-label={`${item.courseName} 考试性质`} value={item.examType} onChange={(event) => update(item.id, 'examType', event.target.value)}>{UI_EXAM_TYPES.map((type) => <option value={type} key={type}>{type}</option>)}</select></td><td title={item.issues.join('。')}>{item.needsReview ? <span className="review">需核对</span> : <span className="verified">可导入</span>}</td><td><input aria-label={`${item.courseName} 已核对`} type="checkbox" checked={item.confirmed} onChange={(event) => setCandidates((items) => items.map((candidate) => candidate.id === item.id ? { ...candidate, confirmed: event.target.checked } : candidate))} /></td></tr>)}</tbody></table></div></section>}
   </>;
 }
 
@@ -201,8 +197,8 @@ function CoursesPage({ attempts, summary, onAdd, onDelete, onReplace }: { attemp
   const [manual, setManual] = useState(initialManual);
   const backupInput = useRef<HTMLInputElement>(null);
   const addManual = (event: React.FormEvent) => { event.preventDefault(); const credits = numberOrUndefined(manual.credits); const score = numberOrUndefined(manual.score); if (!manual.courseName.trim() || credits === undefined || (score === undefined && !manual.grade)) return; onAdd([{ id: newId(), courseName: manual.courseName.trim(), semester: manual.semester.trim() || '未填写学期', credits, examType: manual.examType as UiExamType, ...(manual.courseCode.trim() ? { courseCode: manual.courseCode.trim() } : {}), ...(score === undefined ? {} : { score }), ...(manual.grade ? { grade: manual.grade as UiGrade } : {}) }]); setManual(initialManual); };
-  const exportBackup = () => { const href = URL.createObjectURL(new Blob([JSON.stringify(attempts, null, 2)], { type: 'application/json' })); const anchor = document.createElement('a'); anchor.href = href; anchor.download = 'sztu-gpa-backup.json'; anchor.click(); URL.revokeObjectURL(href); };
-  const importBackup = async (file: File) => { try { const parsed = JSON.parse(await file.text()); if (!Array.isArray(parsed)) throw new Error(); onReplace(parsed as CourseAttempt[]); } catch { window.alert('这不是可识别的成绩备份文件。'); } };
+  const exportBackup = () => { const href = URL.createObjectURL(new Blob([createBackupText(attempts)], { type: 'application/json' })); const anchor = document.createElement('a'); anchor.href = href; anchor.download = 'sztu-gpa-backup.json'; anchor.click(); URL.revokeObjectURL(href); };
+  const importBackup = async (file: File) => { try { onReplace(parseBackupText(await file.text())); } catch (error) { window.alert(error instanceof Error ? error.message : '这不是可识别的成绩备份文件。'); } };
   return <><header className="page-header"><div><p className="eyebrow">成绩档案</p><h1>我的课程</h1><p>每一条考试记录独立保存；补考不会覆盖原始 F。</p></div><div className="header-actions"><button className="secondary" onClick={exportBackup}>导出 JSON</button><button className="secondary" onClick={() => backupInput.current?.click()}>导入 JSON</button><input className="hidden" ref={backupInput} type="file" accept="application/json" onChange={(event) => { const file = event.target.files?.[0]; if (file) void importBackup(file); event.target.value = ''; }} /></div></header><section className="panel add-course"><h2>手动新增考试记录</h2><form onSubmit={addManual}><input placeholder="课程编号（可选）" value={manual.courseCode} onChange={(e) => setManual({ ...manual, courseCode: e.target.value })} /><input placeholder="课程名称" required value={manual.courseName} onChange={(e) => setManual({ ...manual, courseName: e.target.value })} /><input placeholder="学期" required value={manual.semester} onChange={(e) => setManual({ ...manual, semester: e.target.value })} /><input type="number" min="0" max="100" placeholder="学分" required value={manual.credits} onChange={(e) => setManual({ ...manual, credits: e.target.value })} /><input type="number" min="0" max="100" placeholder="成绩（可选）" value={manual.score} onChange={(e) => setManual({ ...manual, score: e.target.value })} /><select value={manual.grade} onChange={(e) => setManual({ ...manual, grade: e.target.value })}><option value="">根据成绩 / 选择等级</option>{[...UI_LETTER_GRADES, ...UI_PASS_FAIL_GRADES].map((grade) => <option key={grade} value={grade}>{gradeLabels[grade]}</option>)}</select><select value={manual.examType} onChange={(e) => setManual({ ...manual, examType: e.target.value })}>{UI_EXAM_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}</select><button className="primary" type="submit"><Plus size={16} />新增</button></form></section><section className="panel"><div className="panel-title"><div><h2>已录入记录</h2><p>质量分 {summary.qualityPoints.toFixed(2)}，GPA 分母 {summary.gpaCredits.toFixed(2)}</p></div></div><div className="table-wrap"><table><thead><tr><th>学期 / 课程</th><th>成绩</th><th>等级 / 绩点</th><th>学分</th><th>考试性质</th><th>GPA 贡献</th><th /></tr></thead><tbody>{summary.contributions.length === 0 ? <tr><td colSpan={7} className="empty-cell">还没有课程记录。可以手动录入，或从成绩截图导入。</td></tr> : summary.contributions.map((item) => <tr key={item.id}><td><strong>{item.courseName}</strong><small>{item.courseCode ?? '未填写课程号'} · {item.semester}</small></td><td>{item.score ?? '—'}</td><td><span className={item.grade === 'F' ? 'grade bad' : 'grade'}>{item.grade}</span> {item.gradePoint ?? '—'}</td><td>{item.credits}</td><td>{item.examType}</td><td>{item.includedInGpa ? `${item.qualityPoints.toFixed(1)} / ${item.gpaCredits.toFixed(1)}` : '不计入'}{item.warnings?.length ? <small className="warning-text">需复核</small> : null}</td><td><button className="icon-button" aria-label={`删除 ${item.courseName}`} onClick={() => onDelete(item.id)}><Trash2 size={16} /></button></td></tr>)}</tbody></table></div></section></>;
 }
 
