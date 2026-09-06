@@ -86,4 +86,41 @@ describe('HTTP API', () => {
       },
     });
   });
+
+  it('does not allow the SZTU 4.5 scale to be overridden', async () => {
+    app = await buildApp();
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/gpa/target',
+      payload: {
+        currentQualityPoints: 392,
+        currentGpaCredits: 130,
+        futureGpaCredits: 60,
+        targetGpa: 3.5,
+        maximumGradePoint: 10,
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      error: { code: 'VALIDATION_ERROR' },
+    });
+  });
+
+  it('keeps malformed JSON as a client error', async () => {
+    app = await buildApp();
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/gpa/calculate',
+      headers: { 'content-type': 'application/json' },
+      payload: '{"attempts":',
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      error: { code: 'INVALID_JSON' },
+    });
+  });
 });

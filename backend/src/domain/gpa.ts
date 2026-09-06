@@ -15,6 +15,11 @@ export interface GpaSummary {
   gpa: number | null;
   displayGpa: string | null;
   contributions: AttemptContribution[];
+  policyWarnings: Array<{
+    code: 'RETAKE_POLICY_UNCONFIRMED';
+    message: string;
+    attemptIds: string[];
+  }>;
 }
 
 const PASS_FAIL_GRADES = new Set<Grade>(['P', 'NP']);
@@ -69,7 +74,9 @@ function resolveEarnedCredit(
   attempt: CourseAttemptInput,
   grade: Grade,
 ): number {
-  const defaultEarnedCredit = grade === 'F' || grade === 'NP' ? 0 : attempt.credits;
+  if (grade === 'F' || grade === 'NP') return 0;
+
+  const defaultEarnedCredit = attempt.credits;
   const earnedCredit = attempt.earnedCredit ?? defaultEarnedCredit;
 
   if (
@@ -91,6 +98,10 @@ function contributionFor(attempt: CourseAttemptInput): AttemptContribution {
   assertCredits(attempt);
   const grade = resolveGrade(attempt);
   const earnedCredit = resolveEarnedCredit(attempt, grade);
+  const warnings: NonNullable<AttemptContribution['warnings']> = [];
+  if ((grade === 'F' || grade === 'NP') && (attempt.earnedCredit ?? 0) > 0) {
+    warnings.push('FAILED_CREDIT_OVERRIDDEN');
+  }
 
   if (attempt.credits === 0) {
     return {
@@ -108,6 +119,7 @@ function contributionFor(attempt: CourseAttemptInput): AttemptContribution {
       exclusionReason: 'ZERO_CREDIT',
       ...(attempt.courseCode === undefined ? {} : { courseCode: attempt.courseCode }),
       ...(attempt.score === undefined ? {} : { score: attempt.score }),
+      ...(warnings.length === 0 ? {} : { warnings }),
     };
   }
 
@@ -127,24 +139,20 @@ function contributionFor(attempt: CourseAttemptInput): AttemptContribution {
       exclusionReason: 'PASS_FAIL',
       ...(attempt.courseCode === undefined ? {} : { courseCode: attempt.courseCode }),
       ...(attempt.score === undefined ? {} : { score: attempt.score }),
+      ...(warnings.length === 0 ? {} : { warnings }),
     };
   }
 
   const gradePoint = gradePointFor(grade as LetterGrade);
   if (attempt.gradePoint !== undefined && attempt.gradePoint !== gradePoint) {
-    throw new DomainError(
-      'GRADE_POINT_MISMATCH',
-      `课程“${attempt.courseName}”的等级与绩点不一致。`,
-      {
-        attemptId: attempt.id,
-        grade,
-        gradePoint: attempt.gradePoint,
-        expectedGradePoint: gradePoint,
-      },
-    );
+    warnings.push('GRADE_POINT_MISMATCH');
   }
 
-  const includedInGpa = attempt.includedInGpa ?? true;
+  const isFailedAttempt = grade === 'F';
+  const includedInGpa = isFailedAttempt ? true : (attempt.includedInGpa ?? true);
+  if (isFailedAttempt && attempt.includedInGpa === false) {
+    warnings.push('FAILED_GPA_EXCLUSION_OVERRIDDEN');
+  }
   return {
     id: attempt.id,
     courseName: attempt.courseName,
@@ -160,6 +168,8 @@ function contributionFor(attempt: CourseAttemptInput): AttemptContribution {
     ...(includedInGpa ? {} : { exclusionReason: 'POLICY_OVERRIDE' as const }),
     ...(attempt.courseCode === undefined ? {} : { courseCode: attempt.courseCode }),
     ...(attempt.score === undefined ? {} : { score: attempt.score }),
+    ...(attempt.gradePoint === undefined ? {} : { reportedGradePoint: attempt.gradePoint }),
+    ...(warnings.length === 0 ? {} : { warnings }),
   };
 }
 
@@ -179,7 +189,24 @@ export function calculateGpa(attempts: CourseAttemptInput[]): GpaSummary {
   const earnedCredits = contributions.reduce((sum, item) => sum + item.earnedCredit, 0);
   const gpaCredits = contributions.reduce((sum, item) => sum + item.gpaCredits, 0);
   const qualityPoints = contributions.reduce((sum, item) => sum + item.qualityPoints, 0);
+  if (![attemptedCredits, earnedCredits, gpaCredits, qualityPoints].every(Number.isFinite)) {
+    throw new DomainError('NUMERIC_OVERFLOW', '课程数据超出可安全计算的范围。');
+  }
   const gpa = gpaCredits === 0 ? null : qualityPoints / gpaCredits;
+  if (gpa !== null && !Number.isFinite(gpa)) {
+    throw new DomainError('NUMERIC_OVERFLOW', 'GPA 计算结果超出可安全表示的范围。');
+  }
+
+  const retakeAttemptIds = contributions
+    .filter((item) => item.examType === 'RETAKE')
+    .map((item) => item.id);
+  const policyWarnings: GpaSummary['policyWarnings'] = retakeAttemptIds.length === 0
+    ? []
+    : [{
+      code: 'RETAKE_POLICY_UNCONFIRMED',
+      message: '正式重修后的累计 GPA 口径尚未完全确认，当前结果按每次考试记录分别计入试算。',
+      attemptIds: retakeAttemptIds,
+    }];
 
   return {
     attemptedCredits,
@@ -189,5 +216,6 @@ export function calculateGpa(attempts: CourseAttemptInput[]): GpaSummary {
     gpa,
     displayGpa: gpa === null ? null : gpa.toFixed(2),
     contributions,
+    policyWarnings,
   };
 }

@@ -7,7 +7,6 @@ import { DomainError } from './domain/errors.js';
 import { calculateGpa } from './domain/gpa.js';
 import { GRADE_POINTS, gradeFromScore } from './domain/grade-scale.js';
 import { planTargetGpa } from './domain/target-planner.js';
-import type { CourseAttemptInput } from './domain/types.js';
 import {
   courseScoreSchema,
   gpaCalculationSchema,
@@ -41,6 +40,21 @@ export async function buildApp(): Promise<FastifyInstance> {
           code: error.code,
           message: error.message,
           ...(error.details === undefined ? {} : { details: error.details }),
+        },
+      });
+    }
+
+    const requestError = error as { code?: string; statusCode?: number };
+    if (
+      requestError.statusCode !== undefined
+      && requestError.statusCode >= 400
+      && requestError.statusCode < 500
+    ) {
+      const invalidJson = requestError.code === 'FST_ERR_CTP_INVALID_JSON_BODY';
+      return reply.status(requestError.statusCode).send({
+        error: {
+          code: invalidJson ? 'INVALID_JSON' : 'REQUEST_ERROR',
+          message: invalidJson ? '请求不是有效的 JSON。' : '请求无法处理。',
         },
       });
     }
@@ -79,7 +93,7 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   app.post('/api/v1/gpa/calculate', async (request) => {
     const input = gpaCalculationSchema.parse(request.body);
-    return calculateGpa(input.attempts as CourseAttemptInput[]);
+    return calculateGpa(input.attempts);
   });
 
   app.post('/api/v1/gpa/target', async (request) => {

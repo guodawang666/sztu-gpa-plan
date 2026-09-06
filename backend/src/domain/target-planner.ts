@@ -5,7 +5,6 @@ export interface TargetGpaInput {
   currentGpaCredits: number;
   futureGpaCredits: number;
   targetGpa: number;
-  maximumGradePoint?: number | undefined;
 }
 
 export type TargetPlanStatus = 'ACHIEVABLE' | 'IMPOSSIBLE' | 'ALREADY_ACHIEVED';
@@ -21,6 +20,8 @@ export interface TargetGpaPlan {
   futureGpaCredits: number;
 }
 
+export const MAXIMUM_GRADE_POINT = 4.5;
+
 function assertFinite(name: string, value: number): void {
   if (!Number.isFinite(value)) {
     throw new DomainError('INVALID_NUMBER', `${name}必须是有限数字。`, {
@@ -31,12 +32,11 @@ function assertFinite(name: string, value: number): void {
 }
 
 export function planTargetGpa(input: TargetGpaInput): TargetGpaPlan {
-  const maximumGradePoint = input.maximumGradePoint ?? 4.5;
+  const maximumGradePoint = MAXIMUM_GRADE_POINT;
   assertFinite('当前质量分', input.currentQualityPoints);
   assertFinite('当前 GPA 学分', input.currentGpaCredits);
   assertFinite('未来 GPA 学分', input.futureGpaCredits);
   assertFinite('目标 GPA', input.targetGpa);
-  assertFinite('满绩点', maximumGradePoint);
 
   if (input.currentQualityPoints < 0 || input.currentGpaCredits <= 0) {
     throw new DomainError(
@@ -69,6 +69,9 @@ export function planTargetGpa(input: TargetGpaInput): TargetGpaPlan {
   const maximumReachableGpa = (
     input.currentQualityPoints + maximumGradePoint * input.futureGpaCredits
   ) / totalCredits;
+  if (![currentGpa, requiredFutureGpa, maximumReachableGpa].every(Number.isFinite)) {
+    throw new DomainError('NUMERIC_OVERFLOW', 'GPA 规划数据超出可安全计算的范围。');
+  }
 
   let status: TargetPlanStatus = 'ACHIEVABLE';
   if (requiredFutureGpa <= 0) status = 'ALREADY_ACHIEVED';

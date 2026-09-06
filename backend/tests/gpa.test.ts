@@ -125,4 +125,66 @@ describe('GPA calculation', () => {
       'ZERO_CREDIT',
     ]);
   });
+
+  it('does not allow callers to grant credit for F or remove F from GPA', () => {
+    const result = calculateGpa([
+      {
+        id: 'failed-course',
+        courseName: '挂科课程',
+        semester: '2024-2025-1',
+        credits: 4,
+        grade: 'F',
+        examType: 'NORMAL',
+        earnedCredit: 4,
+        includedInGpa: false,
+      },
+    ]);
+
+    expect(result).toMatchObject({
+      earnedCredits: 0,
+      gpaCredits: 4,
+      qualityPoints: 0,
+    });
+    expect(result.contributions[0]).toMatchObject({
+      earnedCredit: 0,
+      includedInGpa: true,
+    });
+  });
+
+  it('warns when formal retake records are calculated with an unconfirmed policy', () => {
+    const result = calculateGpa([
+      {
+        id: 'retake',
+        courseName: '重修课程',
+        semester: '2025-2026-1',
+        credits: 3,
+        grade: 'A',
+        examType: 'RETAKE',
+      },
+    ]);
+
+    expect(result.policyWarnings).toContainEqual(expect.objectContaining({
+      code: 'RETAKE_POLICY_UNCONFIRMED',
+    }));
+  });
+
+  it('preserves a reported grade point mismatch for import review', () => {
+    const result = calculateGpa([
+      {
+        id: 'imported-record',
+        courseName: '待复核课程',
+        semester: '2024-2025-1',
+        credits: 2,
+        grade: 'A',
+        gradePoint: 3.5,
+        examType: 'NORMAL',
+      },
+    ]);
+
+    expect(result.contributions[0]).toMatchObject({
+      gradePoint: 4,
+      reportedGradePoint: 3.5,
+      warnings: ['GRADE_POINT_MISMATCH'],
+    });
+  });
 });
