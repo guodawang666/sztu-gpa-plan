@@ -721,15 +721,19 @@ function ImportPage({
       }),
     );
   const importRecords = () => {
-    const invalid = candidates.some(
-      (item) => !isImportableOcrCandidate(item) || !item.confirmed,
-    );
-    if (invalid) {
-      setOcrStatus("每条记录都需要补全必填字段并勾选“已核对”后才能导入。");
+    const reviewedCandidates = confirmImportableCandidates(candidates);
+    const pendingCount = reviewedCandidates.filter(
+      (item) => !item.confirmed,
+    ).length;
+    setCandidates(reviewedCandidates);
+    if (pendingCount > 0) {
+      setOcrStatus(
+        `还有 ${pendingCount} 条记录未通过审核。请点击“一键全部通过审核”，再修正黄色提示的记录。旧数据尚未被替换。`,
+      );
       return;
     }
     onImport(
-      candidates.map((item) => ({
+      reviewedCandidates.map((item) => ({
         id: newId("import"),
         courseName: item.courseName,
         semester: item.semester,
@@ -944,7 +948,6 @@ function ImportPage({
               <button
                 className="primary"
                 onClick={importRecords}
-                disabled={candidates.some((item) => !item.confirmed)}
               >
                 {mode === "REPLACE" ? "替换旧数据并导入" : "确认导入"}{" "}
                 {candidates.length} 条记录

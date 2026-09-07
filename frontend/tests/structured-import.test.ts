@@ -75,6 +75,67 @@ describe("structured grade import", () => {
     ]);
   });
 
+  it("keeps percentage scores when the copied table uses full-width spaces", () => {
+    const pasted = [
+      "学年学期　课程代码　课程名称　课程学分　成绩（百分制）　考核性质",
+      "2024-2025-1　BS00298　数据科学基础　3　82 分　正常考试",
+      "2024-2025-1　IB00166　微积分2　4　93　正常考试",
+    ].join("\n");
+
+    const result = parseStructuredGradeText(pasted, "2025-2026-1");
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        courseCode: "BS00298",
+        courseName: "数据科学基础",
+        credits: 3,
+        score: 82,
+        grade: "B+",
+        gradePoint: 3.5,
+        needsReview: false,
+      }),
+      expect.objectContaining({
+        courseCode: "IB00166",
+        courseName: "微积分2",
+        credits: 4,
+        score: 93,
+        grade: "A+",
+        gradePoint: 4.5,
+        needsReview: false,
+      }),
+    ]);
+    expect(confirmImportableCandidates(result).every((item) => item.confirmed)).toBe(true);
+  });
+
+  it("recognises score-only rows separated by single spaces", () => {
+    const pasted = [
+      "学年学期 课程代码 课程名称 课程学分 百分制 考核性质",
+      "2024-2025-1 BS00298 Python 数据科学基础 3 80 分 正常考试",
+      "2024-2025-2 IB00166 微积分2 4 90 正常考试",
+    ].join("\n");
+
+    const result = parseStructuredGradeText(pasted, "2025-2026-1");
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        courseCode: "BS00298",
+        courseName: "Python 数据科学基础",
+        credits: 3,
+        score: 80,
+        grade: "B+",
+        gradePoint: 3.5,
+      }),
+      expect.objectContaining({
+        courseCode: "IB00166",
+        courseName: "微积分2",
+        credits: 4,
+        score: 90,
+        grade: "A",
+        gradePoint: 4,
+      }),
+    ]);
+  });
+
   it("reads an xlsx file directly in the browser-facing file interface", async () => {
     const workbook = utils.book_new();
     const sheet = utils.aoa_to_sheet([

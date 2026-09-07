@@ -19,7 +19,16 @@ const aliases = {
   courseCode: ["课程编号", "课程代码", "课程号"],
   courseName: ["课程名称", "课程名"],
   credits: ["学分", "课程学分"],
-  score: ["成绩", "总评成绩", "最终成绩", "百分制成绩"],
+  score: [
+    "成绩",
+    "总评",
+    "总评成绩",
+    "最终成绩",
+    "百分制",
+    "百分制成绩",
+    "百分制分数",
+    "成绩（百分制）",
+  ],
   grade: ["等级", "等级成绩", "成绩等级"],
   gradePoint: ["绩点", "课程绩点"],
   examType: ["考试性质", "考核性质", "修读性质"],
@@ -37,18 +46,20 @@ function normaliseHeader(value: Cell): string {
   return text(value).replace(/[\s：:()（）]/g, "").toLowerCase();
 }
 
+function fieldFromHeader(value: Cell): Field | undefined {
+  const header = normaliseHeader(value);
+  return (Object.entries(aliases) as Array<[Field, readonly string[]]>).find(
+    ([, names]) =>
+      names.some((name) => normaliseHeader(name) === header),
+  )?.[0];
+}
+
 function locateHeaders(rows: Cell[][]): { rowIndex: number; columns: HeaderMap } | null {
   for (let rowIndex = 0; rowIndex < Math.min(rows.length, 20); rowIndex += 1) {
     const columns: HeaderMap = {};
     rows[rowIndex]!.forEach((cell, columnIndex) => {
-      const header = normaliseHeader(cell);
-      for (const [field, names] of Object.entries(aliases) as Array<
-        [Field, readonly string[]]
-      >) {
-        if (names.some((name) => normaliseHeader(name) === header)) {
-          columns[field] = columnIndex;
-        }
-      }
+      const field = fieldFromHeader(cell);
+      if (field) columns[field] = columnIndex;
     });
     if (columns.courseName !== undefined && columns.credits !== undefined) {
       return { rowIndex, columns };
@@ -57,9 +68,44 @@ function locateHeaders(rows: Cell[][]): { rowIndex: number; columns: HeaderMap }
   return null;
 }
 
+function parseWhitespaceSeparatedRows(value: string): Cell[][] {
+  const lines = value
+    .split(/\r?\n/)
+    .map((line) =>
+      line
+        .trim()
+        .replace(/(\d(?:\.\d+)?)\s+分(?=\s|$)/g, "$1分")
+        .replace(/\s*([（(])\s*/g, "$1")
+        .replace(/\s*([）)])\s*/g, "$1 ")
+        .trim(),
+    )
+    .filter(Boolean);
+  const tokenRows = lines.map((line) => line.split(/\s+/));
+  const headerIndex = tokenRows.findIndex((row) => {
+    const fields = row.map(fieldFromHeader);
+    return fields.includes("courseName") && fields.includes("credits");
+  });
+  if (headerIndex < 0) return [];
+
+  const header = tokenRows[headerIndex]!;
+  const courseNameIndex = header.findIndex(
+    (cell) => fieldFromHeader(cell) === "courseName",
+  );
+  const dataRows = tokenRows.slice(headerIndex + 1).map((row) => {
+    const overflow = row.length - header.length;
+    if (overflow <= 0 || courseNameIndex < 0) return row;
+    return [
+      ...row.slice(0, courseNameIndex),
+      row.slice(courseNameIndex, courseNameIndex + overflow + 1).join(" "),
+      ...row.slice(courseNameIndex + overflow + 1),
+    ];
+  });
+  return [header, ...dataRows];
+}
+
 function numeric(value: Cell): number | undefined {
   if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
-  const raw = text(value).replace(/分$/, "");
+  const raw = text(value).replace(/(?:分数|分)$/, "").trim();
   if (!raw || !/^-?\d+(?:\.\d+)?$/.test(raw)) return undefined;
   const result = Number(raw);
   return Number.isFinite(result) ? result : undefined;
@@ -163,14 +209,24 @@ export function parseStructuredGradeText(
   value: string,
   defaultSemester: string,
 ): OcrCandidate[] {
-  const normalised = value.replace(/^\uFEFF/, "").trim();
+  const withoutBom = value.replace(/^\uFEFF/, "").trim();
+  const normalised = withoutBom
+    .replace(/[\u3000]+/g, "\t")
+    .replace(/[\u00A0]{2,}/g, "\t")
+    .replace(/ {2,}/g, "\t")
+    .trim();
   if (!normalised) return [];
   const delimiter = normalised.includes("\t") ? "\t" : undefined;
   const parsed = Papa.parse<Cell[]>(normalised, {
     ...(delimiter ? { delimiter } : {}),
     skipEmptyLines: "greedy",
   });
-  return parseStructuredGradeRows(parsed.data, defaultSemester);
+  const structured = parseStructuredGradeRows(parsed.data, defaultSemester);
+  if (structured.length > 0) return structured;
+  return parseStructuredGradeRows(
+    parseWhitespaceSeparatedRows(withoutBom),
+    defaultSemester,
+  );
 }
 
 export async function parseStructuredGradeFile(

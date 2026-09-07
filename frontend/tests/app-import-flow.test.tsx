@@ -238,6 +238,55 @@ describe("grade screenshot import flow", () => {
     expect(screen.queryByText("旧课程")).toBeNull();
   });
 
+  it("replaces old grades from copied percentage-score text", async () => {
+    localStorage.setItem(
+      "sztu-gpa-planner-attempts-v1",
+      JSON.stringify({
+        version: 1,
+        attempts: [
+          {
+            id: "old",
+            courseName: "旧课程",
+            semester: "2024-2025-1",
+            credits: 3,
+            score: 75,
+            grade: "B",
+            examType: "NORMAL",
+          },
+        ],
+      }),
+    );
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByText("3.00");
+
+    await user.click(screen.getByRole("button", { name: "刷新全部成绩" }));
+    fireEvent.change(
+      screen.getByRole("textbox", { name: /直接粘贴教务系统成绩表/ }),
+      {
+        target: {
+          value: [
+            "学年学期　课程代码　课程名称　课程学分　成绩（百分制）　考核性质",
+            "2024-2025-2　BS00298　数据科学基础　3　82 分　正常考试",
+          ].join("\n"),
+        },
+      },
+    );
+    await user.click(screen.getByRole("button", { name: "识别粘贴内容" }));
+
+    expect(screen.getByDisplayValue("82")).toBeTruthy();
+    expect(screen.getByDisplayValue("B+")).toBeTruthy();
+    await user.click(
+      screen.getByRole("button", { name: "替换旧数据并导入 1 条记录" }),
+    );
+
+    await screen.findByRole("heading", { name: "我的课程" });
+    expect(screen.getByText("数据科学基础")).toBeTruthy();
+    expect(screen.queryByText("旧课程")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "总览" }));
+    await screen.findByText("3.50");
+  });
+
   it("keeps dashboard, target planning, semester simulation, and course-score planning connected", async () => {
     localStorage.setItem(
       "sztu-gpa-planner-attempts-v1",
