@@ -182,6 +182,12 @@ describe("grade screenshot import flow", () => {
     await screen.findByText("3.00");
     await user.click(screen.getByRole("button", { name: "刷新全部成绩" }));
     expect(screen.getByText(/刷新模式/)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "成绩导入" }));
+    expect(screen.getByText(/刷新模式/)).toBeTruthy();
+    expect(
+      JSON.parse(localStorage.getItem("sztu-gpa-planner-attempts-v1")!)
+        .attempts[0].courseName,
+    ).toBe("旧课程");
 
     fireEvent.drop(screen.getByRole("button", { name: /拖入成绩截图/ }), {
       dataTransfer: {
@@ -190,6 +196,10 @@ describe("grade screenshot import flow", () => {
     });
     await screen.findByText(/识别完成/);
     await user.click(screen.getByRole("button", { name: "一键全部通过审核" }));
+    expect(
+      JSON.parse(localStorage.getItem("sztu-gpa-planner-attempts-v1")!)
+        .attempts[0].courseName,
+    ).toBe("旧课程");
     await user.click(
       screen.getByRole("button", { name: "替换旧数据并导入 1 条记录" }),
     );

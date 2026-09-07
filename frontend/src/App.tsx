@@ -199,12 +199,10 @@ function App() {
     setPage("import");
   };
   const finishScreenshotImport = (records: CourseAttempt[]) => {
-    if (importMode === "REPLACE") {
-      setAttempts(records);
-      setPage("courses");
-      return;
-    }
-    addAttempts(records);
+    setAttempts((current) =>
+      importMode === "REPLACE" ? records : [...current, ...records],
+    );
+    setPage("courses");
   };
 
   return (
@@ -223,9 +221,13 @@ function App() {
             <button
               className={page === itemPage ? "nav-item active" : "nav-item"}
               key={itemPage}
-              onClick={() =>
-                itemPage === "import" ? openImport("APPEND") : setPage(itemPage)
-              }
+              onClick={() => {
+                if (itemPage === "import") {
+                  if (page !== "import") openImport("APPEND");
+                  return;
+                }
+                setPage(itemPage);
+              }}
             >
               <Icon size={18} />
               {label}
