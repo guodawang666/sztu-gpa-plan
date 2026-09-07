@@ -267,7 +267,9 @@ function App() {
         <div className="sidebar-note">
           4.5 绩点制
           <br />
-          数据默认仅保存在此浏览器
+          成绩保存在此浏览器
+          <br />
+          计算请求不入库
         </div>
       </aside>
       <main className="content">

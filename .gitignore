@@ -5,4 +5,6 @@ coverage/
 .env.*
 !.env.example
 *.log
-
+.wrangler/
+outputs/sztu-gpa-planner-baota/
+outputs/sztu-gpa-planner-baota.zip

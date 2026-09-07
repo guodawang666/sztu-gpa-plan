@@ -1,0 +1,6 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "sztu-gpa-planner",
+  "compatibility_date": "2026-09-07",
+  "pages_build_output_dir": "frontend/dist"
+}

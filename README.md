@@ -15,6 +15,7 @@
 - 已完成：桌面拖放、手机相册选择、重复截图/重复课程行自动清理和一键批量审核。
 - 已完成：安全的一键刷新，审核通过新成绩后整批替换旧档案。
 - 已完成：与概念稿一致的蓝白响应式界面。
+- 已完成：Cloudflare Pages Functions 公网部署适配，网页与计算接口同域运行。
 - 后续扩展：培养方案毕业学分审核与云端同步。
 
 ## 本地运行
@@ -38,7 +39,14 @@ npm run dev:network
 
 ## 生产部署
 
-先运行 `npm run build`。将 `frontend/dist` 作为静态网站部署，并运行 `npm start --workspace @sztu-gpa/backend` 启动 API；网关需把网页的 `/api/*` 和 `/health` 转发至后端。若前后端使用不同域名，请在构建前设置 `VITE_API_BASE_URL` 为 API 的 HTTPS 地址，并按部署域名收紧后端 CORS。
+当前推荐按个人服务器环境部署到宝塔，并绑定 `gpa.gzkang.com`：Nginx 提供网页，Node/Fastify 在服务器本机运行计算 API。
+
+```bash
+npm install
+npm run package:baota
+```
+
+生成的 `outputs/sztu-gpa-planner-baota.zip` 可直接上传宝塔，完整步骤见 [宝塔部署说明](outputs/BAOTA_DEPLOYMENT.md)。[Cloudflare Pages 部署](outputs/CLOUDFLARE_DEPLOYMENT.md)保留为无服务器备选方案。
 
 ## 浏览器与设备
 
@@ -51,6 +59,7 @@ npm run dev:network
 - 支持 PNG、JPG/JPEG、WEBP、BMP 和静态 GIF；暂不直接支持 HEIC。
 - 每批最多 8 张，单张不超过 12 MB，总计不超过 60 MB，避免手机浏览器内存不足。
 - 成绩数据保存在当前浏览器中，同一账号在不同电脑或手机之间暂不会自动同步，可通过 JSON 备份迁移。
+- 结构化成绩会发送到同域计算接口完成即时计算，但应用不配置成绩数据库、不持久化请求内容。
 
 ## 截图 OCR 说明
 

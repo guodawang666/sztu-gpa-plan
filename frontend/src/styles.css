@@ -730,6 +730,10 @@ td select {
     flex-direction: row;
     align-items: center;
     overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .sidebar::-webkit-scrollbar {
+    display: none;
   }
   .brand {
     padding: 0 18px 0 0;
