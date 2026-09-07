@@ -46,7 +46,7 @@ npm install
 npm run package:baota
 ```
 
-生成的 `outputs/sztu-gpa-planner-baota.zip` 可直接上传宝塔，完整步骤见 [宝塔部署说明](outputs/BAOTA_DEPLOYMENT.md)。[Cloudflare Pages 部署](outputs/CLOUDFLARE_DEPLOYMENT.md)保留为无服务器备选方案。
+生成的 `outputs/sztu-gpa-planner-baota.zip` 可直接上传宝塔，完整步骤见 [宝塔部署说明](outputs/BAOTA_DEPLOYMENT.md)。
 
 ## 浏览器与设备
 
