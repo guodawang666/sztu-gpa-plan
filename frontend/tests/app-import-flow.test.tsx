@@ -338,7 +338,14 @@ describe("grade screenshot import flow", () => {
 
     await screen.findByText("绩点映射测试");
     expect(screen.getByText("B+")).toBeTruthy();
-    expect(screen.getByText("3.5")).toBeTruthy();
+    expect(screen.getAllByText("3.5")).toHaveLength(2);
+    expect(
+      screen.getByRole("columnheader", { name: "课程绩点计算" }),
+    ).toBeTruthy();
+    expect(screen.getByText("质量分 10.5 ÷ 3.0 学分")).toBeTruthy();
+    expect(
+      screen.getByText("累计 GPA 3.50 = 质量分 10.50 ÷ GPA 学分 3.00"),
+    ).toBeTruthy();
   });
 
   it("never shows the old dashboard summary while newly imported grades are recalculating", async () => {

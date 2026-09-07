@@ -1338,7 +1338,7 @@ function CoursesPage({
             <p>
               {isSyncing
                 ? "正在同步最新成绩…"
-                : `质量分 ${summary.qualityPoints.toFixed(2)}，GPA 分母 ${summary.gpaCredits.toFixed(2)}`}
+                : `累计 GPA ${summary.displayGpa ?? "—"} = 质量分 ${summary.qualityPoints.toFixed(2)} ÷ GPA 学分 ${summary.gpaCredits.toFixed(2)}`}
             </p>
           </div>
         </div>
@@ -1351,7 +1351,7 @@ function CoursesPage({
                 <th>等级 / 绩点</th>
                 <th>学分</th>
                 <th>考试性质</th>
-                <th>GPA 贡献</th>
+                <th>课程绩点计算</th>
                 <th />
               </tr>
             </thead>
@@ -1412,9 +1412,17 @@ function CoursesPage({
                     <td>{item.credits}</td>
                     <td>{item.examType}</td>
                     <td>
-                      {item.includedInGpa
-                        ? `${item.qualityPoints.toFixed(1)} / ${item.gpaCredits.toFixed(1)}`
-                        : "不计入"}
+                      {item.includedInGpa ? (
+                        <>
+                          <strong>{item.gradePoint?.toFixed(1) ?? "—"}</strong>
+                          <small>
+                            质量分 {item.qualityPoints.toFixed(1)} ÷{" "}
+                            {item.gpaCredits.toFixed(1)} 学分
+                          </small>
+                        </>
+                      ) : (
+                        "不计入 GPA"
+                      )}
                       {item.warnings?.length ? (
                         <small className="warning-text">需复核</small>
                       ) : null}

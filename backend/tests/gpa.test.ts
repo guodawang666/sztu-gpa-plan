@@ -71,6 +71,30 @@ describe('GPA calculation', () => {
     });
   });
 
+  it('keeps 12 quality points distinct from a 3.0 GPA for a four-credit B', () => {
+    const result = calculateGpa([{
+      id: 'four-credit-b',
+      courseName: '大学英语 A1',
+      semester: '2024-2025-1',
+      credits: 4,
+      score: 75,
+      examType: 'NORMAL',
+    }]);
+
+    expect(result).toMatchObject({
+      gpaCredits: 4,
+      qualityPoints: 12,
+      gpa: 3,
+      displayGpa: '3.00',
+    });
+    expect(result.contributions[0]).toMatchObject({
+      grade: 'B',
+      gradePoint: 3,
+      gpaCredits: 4,
+      qualityPoints: 12,
+    });
+  });
+
   it('reproduces the verified transcript totals and displayed GPA', () => {
     const result = calculateGpa(buildVerifiedTranscriptFixture());
 
