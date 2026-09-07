@@ -277,4 +277,18 @@ describe("grade screenshot import flow", () => {
     await user.click(screen.getByRole("button", { name: "反推成绩" }));
     await screen.findByText("80.50");
   });
+
+  it("derives B+ and 3.5 from a manually entered score of 82", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "我的课程" }));
+    await user.type(screen.getByPlaceholderText("课程名称"), "绩点映射测试");
+    await user.type(screen.getByPlaceholderText("成绩（可选）"), "82");
+    await user.click(screen.getByRole("button", { name: "新增" }));
+
+    await screen.findByText("绩点映射测试");
+    expect(screen.getByText("B+")).toBeTruthy();
+    expect(screen.getByText("3.5")).toBeTruthy();
+  });
 });

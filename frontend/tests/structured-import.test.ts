@@ -6,6 +6,7 @@ import {
   parseStructuredGradeRows,
   parseStructuredGradeText,
 } from "../src/lib/structured-import";
+import { confirmImportableCandidates } from "../src/lib/ocr-parser";
 
 describe("structured grade import", () => {
   it("imports exact SZTU values from a worked spreadsheet example", () => {
@@ -100,5 +101,64 @@ describe("structured grade import", () => {
         examType: "MAKEUP",
       }),
     ]);
+  });
+
+  it("merges every worksheet containing a grade table", async () => {
+    const workbook = utils.book_new();
+    for (const [sheetName, semester, code] of [
+      ["第一学期", "2024-2025-1", "BS001"],
+      ["第二学期", "2024-2025-2", "BS002"],
+    ]) {
+      utils.book_append_sheet(
+        workbook,
+        utils.aoa_to_sheet([
+          ["学期", "课程代码", "课程名称", "学分", "成绩"],
+          [semester, code, `${sheetName}课程`, 3, 85],
+        ]),
+        sheetName,
+      );
+    }
+    const file = new File(
+      [write(workbook, { bookType: "xlsx", type: "array" })],
+      "多学期成绩单.xlsx",
+    );
+
+    const result = await parseStructuredGradeFile(file, "2025-2026-1");
+
+    expect(result.candidates.map((item) => item.courseCode)).toEqual([
+      "BS001",
+      "BS002",
+    ]);
+    expect(result.sourceLabel).toBe("第一学期、第二学期");
+  });
+
+  it("does not bulk-approve a grade-point conflict from a structured source", () => {
+    const candidates = parseStructuredGradeRows(
+      [
+        ["课程名称", "学分", "成绩", "等级", "绩点"],
+        ["数据分析", 3, 70, "C+", 3],
+      ],
+      "2024-2025-1",
+    );
+
+    expect(candidates[0]).toMatchObject({
+      grade: "C+",
+      gradePoint: 3,
+      needsReview: true,
+    });
+    expect(confirmImportableCandidates(candidates)[0]?.confirmed).toBe(false);
+  });
+
+  it("does not bulk-approve a score outside the 0 to 100 range", () => {
+    const candidates = parseStructuredGradeRows(
+      [
+        ["课程名称", "学分", "成绩", "等级"],
+        ["异常成绩", 3, 101, "A+"],
+      ],
+      "2024-2025-1",
+    );
+
+    expect(candidates[0]?.issues).toContain("成绩必须在 0 到 100 之间");
+    expect(confirmImportableCandidates(candidates)[0]?.confirmed).toBe(false);
   });
 });

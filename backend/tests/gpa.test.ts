@@ -49,6 +49,28 @@ function buildVerifiedTranscriptFixture(): CourseAttemptInput[] {
 }
 
 describe('GPA calculation', () => {
+  it('maps an 82 score to B+, 3.5 points, and 10.5 quality points for 3 credits', () => {
+    const result = calculateGpa([{
+      id: 'score-82',
+      courseName: '绩点公式验证',
+      semester: '2025-2026-1',
+      credits: 3,
+      score: 82,
+      examType: 'NORMAL',
+    }]);
+
+    expect(result).toMatchObject({
+      gpaCredits: 3,
+      qualityPoints: 10.5,
+      gpa: 3.5,
+      displayGpa: '3.50',
+    });
+    expect(result.contributions[0]).toMatchObject({
+      grade: 'B+',
+      gradePoint: 3.5,
+    });
+  });
+
   it('reproduces the verified transcript totals and displayed GPA', () => {
     const result = calculateGpa(buildVerifiedTranscriptFixture());
 

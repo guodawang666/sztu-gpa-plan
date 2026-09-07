@@ -472,6 +472,30 @@ textarea {
 .candidate-panel {
   margin-top: 17px;
 }
+.import-preview {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(110px, 1fr));
+  gap: 8px;
+  margin: 14px 0 8px;
+}
+.import-preview span {
+  display: grid;
+  gap: 3px;
+  padding: 10px 12px;
+  border-radius: 7px;
+  color: #64748b;
+  background: #f5f8ff;
+  font-size: 11px;
+}
+.import-preview strong {
+  color: #174a9c;
+  font-size: 17px;
+}
+.formula-note {
+  margin: 0 0 12px;
+  color: #64748b;
+  font-size: 12px;
+}
 .table-wrap {
   overflow-x: auto;
 }
@@ -533,6 +557,15 @@ td select {
   grid-template-columns: 1fr 1.4fr 1fr 0.6fr 0.8fr 1fr 1fr auto;
   gap: 8px;
   margin-top: 15px;
+}
+.grade-preview {
+  margin: 12px 0 0;
+  padding: 9px 11px;
+  border-radius: 6px;
+  color: #174a9c;
+  background: #eaf2ff;
+  font-size: 12px;
+  font-weight: 700;
 }
 .candidate-panel .header-actions {
   flex-wrap: wrap;
@@ -756,5 +789,8 @@ td select {
   .mini-metrics {
     display: grid;
     grid-template-columns: 1fr;
+  }
+  .import-preview {
+    grid-template-columns: 1fr 1fr;
   }
 }

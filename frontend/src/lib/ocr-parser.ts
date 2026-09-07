@@ -93,7 +93,7 @@ function gradePositionFromLine(
   return { grade: tokens[index]!.toUpperCase() as UiGrade, index };
 }
 
-function gradeFromScore(score: number): UiLetterGrade {
+export function gradeFromScore(score: number): UiLetterGrade {
   if (score >= 93) return "A+";
   if (score >= 85) return "A";
   if (score >= 80) return "B+";
@@ -106,6 +106,12 @@ function gradeFromScore(score: number): UiLetterGrade {
 
 function isPassFail(grade: UiGrade | undefined): grade is UiPassFailGrade {
   return grade === "P" || grade === "NP";
+}
+
+export function gradePointForUiGrade(
+  grade: UiGrade | undefined,
+): number | undefined {
+  return !grade || isPassFail(grade) ? undefined : gradePoints[grade];
 }
 
 function normaliseCourseCode(value: string | undefined): string | undefined {
@@ -170,8 +176,7 @@ function parseLine(
     : hasSztuTableOrder
       ? numbersAfterGrade[2]
       : numbersAfterGrade[0];
-  const gradePoint =
-    grade === undefined || isPassFail(grade) ? undefined : gradePoints[grade];
+  const gradePoint = gradePointForUiGrade(grade);
 
   let nameStart = codeIndex >= 0 ? codeIndex + 1 : 0;
   while (nameStart < gradeIndex) {
@@ -257,18 +262,26 @@ export function isImportableOcrCandidate(candidate: OcrCandidate): boolean {
     Number.isFinite(candidate.score) &&
     candidate.score >= 0 &&
     candidate.score <= 100;
+  const scoreIsValidOrAbsent = candidate.score === undefined || hasScore;
   const gradeMatchesScore =
     !hasGrade ||
     !hasScore ||
     isPassFail(candidate.grade) ||
     gradeFromScore(candidate.score!) === candidate.grade;
+  const expectedGradePoint = gradePointForUiGrade(candidate.grade);
+  const gradePointMatches =
+    expectedGradePoint === undefined ||
+    candidate.gradePoint === undefined ||
+    candidate.gradePoint === expectedGradePoint;
 
   return (
     courseName.length > 0 &&
     courseName !== "待确认课程" &&
     candidate.semester.trim().length > 0 &&
     (hasGrade || hasScore) &&
+    scoreIsValidOrAbsent &&
     gradeMatchesScore &&
+    gradePointMatches &&
     Number.isFinite(candidate.credits) &&
     candidate.credits >= 0 &&
     candidate.credits <= 100

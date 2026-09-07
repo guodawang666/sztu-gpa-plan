@@ -5,6 +5,7 @@ import type {
   UiExamType,
   UiGrade,
 } from "./ocr-parser";
+import { gradeFromScore, gradePointForUiGrade } from "./ocr-parser";
 
 type Cell = unknown;
 
@@ -13,19 +14,8 @@ export interface StructuredGradeFileResult {
   sourceLabel: string;
 }
 
-const gradePoints: Partial<Record<UiGrade, number>> = {
-  "A+": 4.5,
-  A: 4,
-  "B+": 3.5,
-  B: 3,
-  "C+": 2.5,
-  C: 2,
-  D: 1,
-  F: 0,
-};
-
 const aliases = {
-  semester: ["学期", "开课学期", "修读学期"],
+  semester: ["学期", "学年学期", "开课学期", "修读学期"],
   courseCode: ["课程编号", "课程代码", "课程号"],
   courseName: ["课程名称", "课程名"],
   credits: ["学分", "课程学分"],
@@ -83,19 +73,8 @@ function parseGrade(value: Cell, scoreValue: Cell): UiGrade | undefined {
     return raw as UiGrade;
   }
   const score = numeric(scoreValue);
-  if (score === undefined) return undefined;
-  if (score >= 93) return "A+";
-  if (score >= 85) return "A";
-  if (score >= 80) return "B+";
-  if (score >= 75) return "B";
-  if (score >= 70) return "C+";
-  if (score >= 65) return "C";
-  if (score >= 60) return "D";
-  return "F";
-}
-
-function gradeFromNumericScore(score: number): UiGrade {
-  return parseGrade("", score)!;
+  if (score === undefined || score < 0 || score > 100) return undefined;
+  return gradeFromScore(score);
 }
 
 function parseExamType(value: Cell): UiExamType {
@@ -135,16 +114,23 @@ export function parseStructuredGradeRows(
       if (!courseName) issues.push("未识别到课程名称");
       if (credits === undefined) issues.push("未识别到学分");
       if (!grade) issues.push("未识别到成绩等级或分数");
+      if (score !== undefined && (score < 0 || score > 100)) {
+        issues.push("成绩必须在 0 到 100 之间");
+      }
       if (
         score !== undefined &&
         grade !== undefined &&
         grade !== "P" &&
         grade !== "NP" &&
-        gradeFromNumericScore(score) !== grade
+        gradeFromScore(score) !== grade
       ) {
         issues.push(`分数 ${score} 与成绩等级 ${grade} 不符合 SZTU 映射`);
       }
-      const mappedGradePoint = grade ? gradePoints[grade] : undefined;
+      const mappedGradePoint = gradePointForUiGrade(grade);
+      const gradePoint =
+        mappedGradePoint === undefined
+          ? undefined
+          : sourceGradePoint ?? mappedGradePoint;
       if (
         sourceGradePoint !== undefined &&
         mappedGradePoint !== undefined &&
@@ -163,7 +149,7 @@ export function parseStructuredGradeRows(
         credits: credits ?? -1,
         ...(score === undefined ? {} : { score }),
         ...(grade === undefined ? {} : { grade }),
-        ...(mappedGradePoint === undefined ? {} : { gradePoint: mappedGradePoint }),
+        ...(gradePoint === undefined ? {} : { gradePoint }),
         examType: parseExamType(cell(row, header.columns, "examType")),
         needsReview: issues.length > 0,
         issues,
@@ -205,8 +191,9 @@ export async function parseStructuredGradeFile(
   const XLSX = await import("xlsx");
   const workbook = XLSX.read(bytes, { type: "array", cellDates: false });
 
-  let best: StructuredGradeFileResult | null = null;
-  for (const sheetName of workbook.SheetNames) {
+  const candidates: OcrCandidate[] = [];
+  const sourceLabels: string[] = [];
+  for (const [sheetIndex, sheetName] of workbook.SheetNames.entries()) {
     const worksheet = workbook.Sheets[sheetName];
     if (!worksheet) continue;
     const rows = XLSX.utils.sheet_to_json<Cell[]>(worksheet, {
@@ -214,14 +201,19 @@ export async function parseStructuredGradeFile(
       raw: true,
       defval: "",
     });
-    const candidates = parseStructuredGradeRows(rows, defaultSemester);
-    if (!best || candidates.length > best.candidates.length) {
-      best = { candidates, sourceLabel: sheetName };
-    }
+    const sheetCandidates = parseStructuredGradeRows(rows, defaultSemester);
+    if (!sheetCandidates.length) continue;
+    sourceLabels.push(sheetName);
+    candidates.push(
+      ...sheetCandidates.map((candidate) => ({
+        ...candidate,
+        id: `${candidate.id}-sheet-${sheetIndex}`,
+      })),
+    );
   }
 
-  if (!best || !best.candidates.length) {
+  if (!candidates.length) {
     throw new Error("工作簿中未找到可识别的成绩表头或课程记录");
   }
-  return best;
+  return { candidates, sourceLabel: sourceLabels.join("、") };
 }

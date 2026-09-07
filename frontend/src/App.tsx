@@ -33,6 +33,8 @@ import {
   applyOcrConfidence,
   confirmImportableCandidates,
   deduplicateOcrCandidates,
+  gradeFromScore,
+  gradePointForUiGrade,
   isImportableOcrCandidate,
   parseTranscriptOcrText,
   UI_EXAM_TYPES,
@@ -609,14 +611,38 @@ function ImportPage({
             needsReview: true,
             confirmed: false,
           };
-        if (key === "score" || key === "gradePoint") {
+        if (key === "score") {
           if (value.trim() === "") {
-            const { [key]: _removed, ...rest } = item;
+            const { score: _removed, ...rest } = item;
+            return { ...rest, needsReview: true, confirmed: false };
+          }
+          const score = Number(value);
+          if (Number.isFinite(score) && score >= 0 && score <= 100) {
+            const grade = gradeFromScore(score);
+            return {
+              ...item,
+              score,
+              grade,
+              gradePoint: gradePointForUiGrade(grade)!,
+              needsReview: true,
+              confirmed: false,
+            };
+          }
+          return {
+            ...item,
+            score,
+            needsReview: true,
+            confirmed: false,
+          };
+        }
+        if (key === "gradePoint") {
+          if (value.trim() === "") {
+            const { gradePoint: _removed, ...rest } = item;
             return { ...rest, needsReview: true, confirmed: false };
           }
           return {
             ...item,
-            [key]: Number(value),
+            gradePoint: Number(value),
             needsReview: true,
             confirmed: false,
           };
@@ -626,8 +652,20 @@ function ImportPage({
           return { ...rest, needsReview: true, confirmed: false };
         }
         if (key === "grade" && value.trim() === "") {
-          const { grade: _removed, ...rest } = item;
+          const { grade: _removed, gradePoint: _oldPoint, ...rest } = item;
           return { ...rest, needsReview: true, confirmed: false };
+        }
+        if (key === "grade") {
+          const { gradePoint: _oldPoint, ...rest } = item;
+          const grade = value as UiGrade;
+          const gradePoint = gradePointForUiGrade(grade);
+          return {
+            ...rest,
+            grade,
+            ...(gradePoint === undefined ? {} : { gradePoint }),
+            needsReview: true,
+            confirmed: false,
+          };
         }
         return { ...item, [key]: value, needsReview: true, confirmed: false };
       }),
@@ -658,6 +696,26 @@ function ImportPage({
       })),
     );
   };
+  const importPreview = useMemo(() => {
+    let gpaCredits = 0;
+    let qualityPoints = 0;
+    for (const item of candidates) {
+      const gradePoint = gradePointForUiGrade(item.grade);
+      if (
+        gradePoint === undefined ||
+        !Number.isFinite(item.credits) ||
+        item.credits <= 0
+      )
+        continue;
+      gpaCredits += item.credits;
+      qualityPoints += item.credits * gradePoint;
+    }
+    return {
+      gpaCredits,
+      qualityPoints,
+      gpa: gpaCredits > 0 ? qualityPoints / gpaCredits : null,
+    };
+  }, [candidates]);
   return (
     <>
       <header className="page-header">
@@ -836,6 +894,15 @@ function ImportPage({
               </button>
             </div>
           </div>
+          <div className="import-preview">
+            <span>记录 <strong>{candidates.length}</strong></span>
+            <span>GPA 学分 <strong>{importPreview.gpaCredits.toFixed(1)}</strong></span>
+            <span>质量分 <strong>{importPreview.qualityPoints.toFixed(1)}</strong></span>
+            <span>预估 GPA <strong>{importPreview.gpa?.toFixed(2) ?? "—"}</strong></span>
+          </div>
+          <p className="formula-note">
+            GPA = Σ（课程学分 × 课程绩点）÷ Σ计入 GPA 的课程学分；F 的学分计入分母，P/NP 不计入。
+          </p>
           <div className="table-wrap">
             <table>
               <thead>
@@ -845,6 +912,7 @@ function ImportPage({
                   <th>学分</th>
                   <th>成绩</th>
                   <th>等级</th>
+                  <th>绩点</th>
                   <th>考试性质</th>
                   <th>状态</th>
                   <th>已核对</th>
@@ -921,6 +989,19 @@ function ImportPage({
                           ),
                         )}
                       </select>
+                    </td>
+                    <td>
+                      <input
+                        aria-label={`${item.courseName} 绩点`}
+                        type="number"
+                        min="0"
+                        max="4.5"
+                        step="0.5"
+                        value={item.gradePoint ?? ""}
+                        onChange={(event) =>
+                          update(item.id, "gradePoint", event.target.value)
+                        }
+                      />
                     </td>
                     <td>
                       <select
@@ -1011,6 +1092,12 @@ function CoursesPage({
 }) {
   const [manual, setManual] = useState(initialManual);
   const backupInput = useRef<HTMLInputElement>(null);
+  const manualScore = numberOrUndefined(manual.score);
+  const manualDerivedGrade =
+    manualScore !== undefined && manualScore >= 0 && manualScore <= 100
+      ? gradeFromScore(manualScore)
+      : undefined;
+  const manualDerivedGradePoint = gradePointForUiGrade(manualDerivedGrade);
   const addManual = (event: React.FormEvent) => {
     event.preventDefault();
     const credits = numberOrUndefined(manual.credits);
@@ -1032,7 +1119,11 @@ function CoursesPage({
           ? { courseCode: manual.courseCode.trim() }
           : {}),
         ...(score === undefined ? {} : { score }),
-        ...(manual.grade ? { grade: manual.grade as UiGrade } : {}),
+        ...(manualDerivedGrade
+          ? { grade: manualDerivedGrade }
+          : manual.grade
+            ? { grade: manual.grade as UiGrade }
+            : {}),
       },
     ]);
     setManual(initialManual);
@@ -1130,11 +1221,25 @@ function CoursesPage({
             max="100"
             placeholder="成绩（可选）"
             value={manual.score}
-            onChange={(e) => setManual({ ...manual, score: e.target.value })}
+            onChange={(e) => {
+              const scoreText = e.target.value;
+              const score = numberOrUndefined(scoreText);
+              const derivedGrade =
+                score !== undefined && score >= 0 && score <= 100
+                  ? gradeFromScore(score)
+                  : undefined;
+              setManual({
+                ...manual,
+                score: scoreText,
+                grade: derivedGrade ?? (scoreText ? manual.grade : ""),
+              });
+            }}
           />
           <select
             value={manual.grade}
             onChange={(e) => setManual({ ...manual, grade: e.target.value })}
+            disabled={manualDerivedGrade !== undefined}
+            aria-label="成绩等级"
           >
             <option value="">根据成绩 / 选择等级</option>
             {[...UI_LETTER_GRADES, ...UI_PASS_FAIL_GRADES].map((grade) => (
@@ -1158,6 +1263,11 @@ function CoursesPage({
             新增
           </button>
         </form>
+        {manualDerivedGrade && manualDerivedGradePoint !== undefined && (
+          <p className="grade-preview" aria-live="polite">
+            自动换算：{manualScore} 分 → {manualDerivedGrade} → 绩点 {manualDerivedGradePoint.toFixed(1)}
+          </p>
+        )}
       </section>
       <section className="panel">
         <div className="panel-title">
@@ -1727,6 +1837,11 @@ function RulesPage() {
         </div>
       </header>
       <section className="panel rules">
+        <h2>累计 GPA 公式</h2>
+        <div className="grade-map">
+          GPA = Σ（课程学分 × 课程绩点）÷ Σ计入 GPA 的课程学分
+        </div>
+        <p>例如一门 3 学分、82 分的课程：82 → B+ → 3.5，贡献质量分 3 × 3.5 = 10.5。</p>
         <h2>成绩映射</h2>
         <div className="grade-map">
           93–100 A+ / 4.5 · 85–92 A / 4.0 · 80–84 B+ / 3.5 · 75–79 B / 3.0 ·
