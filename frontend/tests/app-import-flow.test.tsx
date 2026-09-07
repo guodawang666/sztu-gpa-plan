@@ -291,4 +291,71 @@ describe("grade screenshot import flow", () => {
     expect(screen.getByText("B+")).toBeTruthy();
     expect(screen.getByText("3.5")).toBeTruthy();
   });
+
+  it("never shows the old dashboard summary while newly imported grades are recalculating", async () => {
+    localStorage.setItem(
+      "sztu-gpa-planner-attempts-v1",
+      JSON.stringify({
+        version: 1,
+        attempts: [
+          {
+            id: "old-course",
+            courseName: "原课程",
+            semester: "2024-2025-1",
+            credits: 3,
+            score: 75,
+            grade: "B",
+            examType: "NORMAL",
+          },
+        ],
+      }),
+    );
+    let releaseNewCalculation!: () => void;
+    const newCalculationGate = new Promise<void>((resolve) => {
+      releaseNewCalculation = resolve;
+    });
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      const body = JSON.parse(String(init?.body)) as {
+        attempts: Array<Record<string, unknown>>;
+      };
+      if (
+        String(input).endsWith("/api/v1/gpa/calculate") &&
+        body.attempts.length === 2
+      ) {
+        await newCalculationGate;
+      }
+      return new Response(JSON.stringify(gpaResponse(body.attempts)), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByText("3.00");
+
+    await user.click(screen.getByRole("button", { name: "成绩导入" }));
+    fireEvent.change(
+      screen.getByRole("textbox", { name: /直接粘贴教务系统成绩表/ }),
+      {
+        target: {
+          value: [
+            "学期\t课程编号\t课程名称\t学分\t成绩\t等级\t绩点\t考试性质",
+            "2024-2025-2\tNEW001\t新课程\t3\t85\tA\t4\t正常考试",
+          ].join("\n"),
+        },
+      },
+    );
+    await user.click(screen.getByRole("button", { name: "识别粘贴内容" }));
+    await user.click(screen.getByRole("button", { name: "一键全部通过审核" }));
+    await user.click(screen.getByRole("button", { name: "确认导入 1 条记录" }));
+    await screen.findByRole("heading", { name: "我的课程" });
+    await user.click(screen.getByRole("button", { name: "总览" }));
+
+    const syncing = screen.queryByText("正在同步最新成绩…");
+    const staleGpa = screen.queryByText("3.00");
+    releaseNewCalculation();
+    expect(syncing).toBeTruthy();
+    expect(staleGpa).toBeNull();
+    await screen.findByText("3.50");
+  });
 });

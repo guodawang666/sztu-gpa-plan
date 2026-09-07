@@ -1,4 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type SetStateAction,
+} from "react";
 import {
   Calculator,
   ChevronRight,
@@ -154,6 +160,9 @@ function App() {
   );
   const [summary, setSummary] = useState<GpaSummary>(emptySummary);
   const [summaryError, setSummaryError] = useState("");
+  const [summaryLoading, setSummaryLoading] = useState(
+    initialLoad.attempts.length > 0,
+  );
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, createBackupText(attempts));
@@ -161,13 +170,16 @@ function App() {
     if (attempts.length === 0) {
       setSummary(emptySummary);
       setSummaryError("");
+      setSummaryLoading(false);
       return undefined;
     }
+    setSummaryLoading(true);
     void calculateGpa(attempts)
       .then((result) => {
         if (!ignore) {
           setSummary(result);
           setSummaryError("");
+          setSummaryLoading(false);
         }
       })
       .catch((error: unknown) => {
@@ -176,6 +188,7 @@ function App() {
           setSummaryError(
             error instanceof Error ? error.message : "无法连接计算服务。",
           );
+          setSummaryLoading(false);
         }
       });
     return () => {
@@ -185,19 +198,30 @@ function App() {
 
   const counters = useMemo(
     () => ({
-      failures: summary.contributions.filter((item) => item.grade === "F")
-        .length,
-      passFail: summary.contributions.filter(
+      failures: attempts.filter((item) => {
+        const grade =
+          item.grade ??
+          (item.score !== undefined ? gradeFromScore(item.score) : undefined);
+        return grade === "F";
+      }).length,
+      passFail: attempts.filter(
         (item) => item.grade === "P" || item.grade === "NP",
       ).length,
-      makeup: summary.contributions.filter((item) => item.examType === "MAKEUP")
-        .length,
+      makeup: attempts.filter((item) => item.examType === "MAKEUP").length,
     }),
-    [summary],
+    [attempts],
   );
+  const attemptedCredits = useMemo(
+    () => attempts.reduce((total, item) => total + item.credits, 0),
+    [attempts],
+  );
+  const updateAttempts = (update: SetStateAction<CourseAttempt[]>) => {
+    setSummaryLoading(true);
+    setAttempts(update);
+  };
 
   const addAttempts = (records: CourseAttempt[]) => {
-    setAttempts((current) => [...current, ...records]);
+    updateAttempts((current) => [...current, ...records]);
     setPage("courses");
   };
   const openImport = (mode: ImportMode) => {
@@ -205,7 +229,7 @@ function App() {
     setPage("import");
   };
   const finishScreenshotImport = (records: CourseAttempt[]) => {
-    setAttempts((current) =>
+    updateAttempts((current) =>
       importMode === "REPLACE" ? records : [...current, ...records],
     );
     setPage("courses");
@@ -256,6 +280,9 @@ function App() {
         {page === "dashboard" && (
           <Dashboard
             summary={summary}
+            isSyncing={summaryLoading}
+            attemptCount={attempts.length}
+            attemptedCredits={attemptedCredits}
             counters={counters}
             onGo={setPage}
             onOpenImport={openImport}
@@ -268,11 +295,14 @@ function App() {
           <CoursesPage
             attempts={attempts}
             summary={summary}
+            isSyncing={summaryLoading}
             onAdd={addAttempts}
             onDelete={(id) =>
-              setAttempts((items) => items.filter((item) => item.id !== id))
+              updateAttempts((items) =>
+                items.filter((item) => item.id !== id),
+              )
             }
-            onReplace={setAttempts}
+            onReplace={updateAttempts}
           />
         )}
         {page === "target" && <TargetPage summary={summary} />}
@@ -288,11 +318,17 @@ function App() {
 
 function Dashboard({
   summary,
+  isSyncing,
+  attemptCount,
+  attemptedCredits,
   counters,
   onGo,
   onOpenImport,
 }: {
   summary: GpaSummary;
+  isSyncing: boolean;
+  attemptCount: number;
+  attemptedCredits: number;
   counters: Record<string, number>;
   onGo: (page: Page) => void;
   onOpenImport: (mode: ImportMode) => void;
@@ -316,16 +352,23 @@ function Dashboard({
           </button>
         </div>
       </header>
+      {isSyncing && (
+        <div className="notice refresh-notice" role="status">
+          <RefreshCw size={16} />
+          正在同步最新成绩…
+        </div>
+      )}
       <section className="hero-card">
         <div>
           <p className="eyebrow light">当前累计 GPA</p>
           <div className="gpa-number">
-            {summary.displayGpa ?? "—"}
+            {isSyncing ? "—" : (summary.displayGpa ?? "—")}
             <span>/ 4.50</span>
           </div>
           <p className="muted-light">
-            质量分 {summary.qualityPoints.toFixed(2)} ÷ GPA 学分{" "}
-            {summary.gpaCredits.toFixed(2)}
+            {isSyncing
+              ? "正在根据最新成绩重新计算"
+              : `质量分 ${summary.qualityPoints.toFixed(2)} ÷ GPA 学分 ${summary.gpaCredits.toFixed(2)}`}
           </p>
         </div>
         <div className="hero-actions">
@@ -338,13 +381,16 @@ function Dashboard({
         </div>
       </section>
       <section className="metric-grid">
-        <Metric label="已获得学分" value={summary.earnedCredits.toFixed(1)} />
-        <Metric label="GPA 计算学分" value={summary.gpaCredits.toFixed(1)} />
-        <Metric label="考试记录" value={String(summary.contributions.length)} />
         <Metric
-          label="所修总学分"
-          value={summary.attemptedCredits.toFixed(1)}
+          label="已获得学分"
+          value={isSyncing ? "—" : summary.earnedCredits.toFixed(1)}
         />
+        <Metric
+          label="GPA 计算学分"
+          value={isSyncing ? "—" : summary.gpaCredits.toFixed(1)}
+        />
+        <Metric label="考试记录" value={String(attemptCount)} />
+        <Metric label="所修总学分" value={attemptedCredits.toFixed(1)} />
       </section>
       <section className="two-column">
         <div className="panel">
@@ -1091,12 +1137,14 @@ function ImportPage({
 function CoursesPage({
   attempts,
   summary,
+  isSyncing,
   onAdd,
   onDelete,
   onReplace,
 }: {
   attempts: CourseAttempt[];
   summary: GpaSummary;
+  isSyncing: boolean;
   onAdd: (records: CourseAttempt[]) => void;
   onDelete: (id: string) => void;
   onReplace: (records: CourseAttempt[]) => void;
@@ -1285,8 +1333,9 @@ function CoursesPage({
           <div>
             <h2>已录入记录</h2>
             <p>
-              质量分 {summary.qualityPoints.toFixed(2)}，GPA 分母{" "}
-              {summary.gpaCredits.toFixed(2)}
+              {isSyncing
+                ? "正在同步最新成绩…"
+                : `质量分 ${summary.qualityPoints.toFixed(2)}，GPA 分母 ${summary.gpaCredits.toFixed(2)}`}
             </p>
           </div>
         </div>
@@ -1310,7 +1359,7 @@ function CoursesPage({
                     还没有课程记录。可以手动录入，或复制粘贴/导入成绩单。
                   </td>
                 </tr>
-              ) : summary.contributions.length === 0 ? (
+              ) : isSyncing || summary.contributions.length === 0 ? (
                 attempts.map((item) => (
                   <tr key={item.id}>
                     <td>
@@ -1324,7 +1373,9 @@ function CoursesPage({
                     <td>{item.credits}</td>
                     <td>{item.examType}</td>
                     <td>
-                      <small className="warning-text">计算服务暂不可用</small>
+                      <small className="warning-text">
+                        {isSyncing ? "正在重新计算" : "计算服务暂不可用"}
+                      </small>
                     </td>
                     <td>
                       <button
