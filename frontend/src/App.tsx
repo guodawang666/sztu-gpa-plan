@@ -43,6 +43,10 @@ import {
   type UiGrade,
 } from "./lib/ocr-parser";
 import { createBackupText, parseBackupText } from "./lib/storage";
+import {
+  parseStructuredGradeFile,
+  parseStructuredGradeText,
+} from "./lib/structured-import";
 
 type Page =
   | "dashboard"
@@ -306,7 +310,7 @@ function Dashboard({
           </button>
           <button className="primary" onClick={() => onOpenImport("APPEND")}>
             <Upload size={17} />
-            导入成绩截图
+            导入成绩
           </button>
         </div>
       </header>
@@ -372,7 +376,7 @@ function Dashboard({
           </div>
           <div className="flow">
             <button onClick={() => onOpenImport("APPEND")}>
-              <span>1</span>上传截图或粘贴 OCR 文本
+              <span>1</span>复制粘贴或导入成绩单
               <ChevronRight size={16} />
             </button>
             <button onClick={() => onGo("courses")}>
@@ -435,18 +439,65 @@ function ImportPage({
   const [ocrStatus, setOcrStatus] = useState("");
   const [busy, setBusy] = useState(false);
   const [dragActive, setDragActive] = useState(false);
-  const fileInput = useRef<HTMLInputElement>(null);
+  const [structuredDragActive, setStructuredDragActive] = useState(false);
+  const imageFileInput = useRef<HTMLInputElement>(null);
+  const structuredFileInput = useRef<HTMLInputElement>(null);
 
   const parseText = () => {
+    const structured = parseStructuredGradeText(rawText, semester);
     const parsed = deduplicateOcrCandidates(
-      parseTranscriptOcrText(rawText, semester),
+      structured.length
+        ? structured
+        : parseTranscriptOcrText(rawText, semester),
     );
     setCandidates(parsed.unique);
     setOcrStatus(
-      parsed.duplicateCount
-        ? `已解析 ${parsed.unique.length} 条，并删除 ${parsed.duplicateCount} 条重复课程记录。`
-        : `已解析 ${parsed.unique.length} 条记录，请核对后导入。`,
+      parsed.unique.length === 0
+        ? "没有识别到课程。请从教务系统复制包含表头的完整成绩表，或改用 Excel/CSV 文件。"
+        : parsed.duplicateCount
+          ? `已${structured.length ? "按表格" : "按普通文本"}解析 ${parsed.unique.length} 条，并删除 ${parsed.duplicateCount} 条重复课程记录。`
+          : `已${structured.length ? "按表格" : "按普通文本"}精确解析 ${parsed.unique.length} 条记录，请核对后导入。`,
     );
+  };
+  const receiveStructuredFiles = async (files: Iterable<File>) => {
+    const selected = Array.from(files).filter((file) =>
+      /\.(xlsx|xls|csv|tsv)$/i.test(file.name),
+    );
+    if (!selected.length) {
+      setOcrStatus("请选择 XLS、XLSX、CSV 或 TSV 成绩单。");
+      return;
+    }
+    setBusy(true);
+    setOcrStatus("正在读取成绩表单元格…");
+    try {
+      const allCandidates: OcrCandidate[] = [];
+      const sourceLabels: string[] = [];
+      for (const [fileIndex, file] of selected.entries()) {
+        const result = await parseStructuredGradeFile(file, semester);
+        sourceLabels.push(result.sourceLabel);
+        allCandidates.push(
+          ...result.candidates.map((candidate) => ({
+            ...candidate,
+            id: `${candidate.id}-file-${fileIndex}`,
+          })),
+        );
+      }
+      const parsed = deduplicateOcrCandidates(allCandidates);
+      setCandidates(parsed.unique);
+      setOcrStatus(
+        `已从 ${selected.length} 个文件精确读取 ${parsed.unique.length} 条记录${
+          parsed.duplicateCount
+            ? `，并删除 ${parsed.duplicateCount} 条重复课程记录`
+            : ""
+        }。来源：${sourceLabels.join("、")}。`,
+      );
+    } catch (error) {
+      setOcrStatus(
+        error instanceof Error ? `文件读取失败：${error.message}` : "文件读取失败。",
+      );
+    } finally {
+      setBusy(false);
+    }
   };
   const recogniseAndParseImages = async (
     files: File[],
@@ -611,10 +662,10 @@ function ImportPage({
     <>
       <header className="page-header">
         <div>
-          <p className="eyebrow">本地 OCR 导入</p>
-          <h1>从成绩截图开始</h1>
+          <p className="eyebrow">本地高精度导入</p>
+          <h1>复制成绩表，直接识别</h1>
           <p>
-            图片在当前浏览器内识别；系统不会向你索要教务密码，也不会自动提交识别结果。
+            推荐从教务系统复制整张成绩表并粘贴；也可拖入 Excel/CSV。无需密码、无需插件，文件解析只在当前浏览器完成。
           </p>
         </div>
       </header>
@@ -634,9 +685,77 @@ function ImportPage({
             />
           </label>
         </div>
+        <div className="import-method-heading">
+          <span className="method-number">1</span>
+          <div>
+            <strong>复制粘贴成绩表</strong>
+            <p>最方便：在教务系统中选中整张表，复制后粘贴到这里。</p>
+          </div>
+          <span className="recommended-badge">推荐</span>
+        </div>
+        <label>
+          直接粘贴教务系统成绩表（推荐）
+          <textarea
+            value={rawText}
+            onChange={(event) => setRawText(event.target.value)}
+            placeholder={"请连同表头一起复制，例如：\n学期　课程编号　课程名称　学分　成绩　等级　绩点　考试性质"}
+            rows={7}
+          />
+        </label>
+        <button className="primary compact-action" onClick={parseText} disabled={!rawText.trim()}>
+          识别粘贴内容
+        </button>
+        <div className="divider">
+          <span>或</span>
+        </div>
+        <div className="import-method-heading">
+          <span className="method-number">2</span>
+          <div>
+            <strong>导入 Excel / CSV 成绩单</strong>
+            <p>直接读取单元格，不经过图片识别。</p>
+          </div>
+        </div>
+        <button
+          className={`dropzone structured-dropzone ${structuredDragActive ? "drag-active" : ""}`}
+          onClick={() => structuredFileInput.current?.click()}
+          onDragEnter={(event) => {
+            event.preventDefault();
+            if (!busy) setStructuredDragActive(true);
+          }}
+          onDragOver={(event) => event.preventDefault()}
+          onDragLeave={() => setStructuredDragActive(false)}
+          onDrop={(event) => {
+            event.preventDefault();
+            setStructuredDragActive(false);
+            if (!busy) void receiveStructuredFiles(event.dataTransfer.files);
+          }}
+          disabled={busy}
+        >
+          <FileUp size={31} />
+          <strong>
+            {structuredDragActive ? "松开鼠标，读取成绩单" : "拖入 Excel / CSV，或点击选择"}
+          </strong>
+          <span>支持 XLS、XLSX、CSV、TSV；电脑和手机浏览器均无需安装插件。</span>
+        </button>
+        <input
+          className="hidden"
+          ref={structuredFileInput}
+          type="file"
+          accept=".xls,.xlsx,.csv,.tsv,text/csv,text/tab-separated-values,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          multiple
+          onChange={(event) => {
+            const files = Array.from(event.target.files ?? []);
+            if (files.length) void receiveStructuredFiles(files);
+            event.target.value = "";
+          }}
+        />
+        <div className="divider">
+          <span>截图识别（备用）</span>
+        </div>
+        <p className="fallback-note">只有无法复制或下载成绩单时才建议使用截图；截图结果必须人工核对。</p>
         <button
           className={`dropzone ${dragActive ? "drag-active" : ""}`}
-          onClick={() => fileInput.current?.click()}
+          onClick={() => imageFileInput.current?.click()}
           onDragEnter={(event) => {
             event.preventDefault();
             if (!busy) setDragActive(true);
@@ -666,7 +785,7 @@ function ImportPage({
         </button>
         <input
           className="hidden"
-          ref={fileInput}
+          ref={imageFileInput}
           type="file"
           accept="image/png,image/jpeg,image/webp,image/bmp,image/gif"
           multiple
@@ -681,21 +800,6 @@ function ImportPage({
             {ocrStatus}
           </p>
         )}
-        <div className="divider">
-          <span>或</span>
-        </div>
-        <label>
-          粘贴识别出的表格文字
-          <textarea
-            value={rawText}
-            onChange={(event) => setRawText(event.target.value)}
-            placeholder="例如：IB00166 微积分2 4 53 F 0 正常考试"
-            rows={6}
-          />
-        </label>
-        <button className="secondary" onClick={parseText}>
-          解析文本
-        </button>
       </section>
       {candidates.length > 0 && (
         <section className="panel candidate-panel">
@@ -1082,7 +1186,7 @@ function CoursesPage({
               {summary.contributions.length === 0 && attempts.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="empty-cell">
-                    还没有课程记录。可以手动录入，或从成绩截图导入。
+                    还没有课程记录。可以手动录入，或复制粘贴/导入成绩单。
                   </td>
                 </tr>
               ) : summary.contributions.length === 0 ? (

@@ -119,6 +119,35 @@ describe("grade screenshot import flow", () => {
     );
   });
 
+  it("pastes a copied grade table without OCR and sends exact values to review", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "成绩导入" }));
+    fireEvent.change(
+      screen.getByRole("textbox", { name: /直接粘贴教务系统成绩表/ }),
+      {
+        target: {
+          value: [
+            "学期\t课程编号\t课程名称\t学分\t成绩\t等级\t绩点\t考试性质",
+            "2024-2025-2\tIB00166\t微积分2\t4\t64\tD\t1\t补考",
+          ].join("\n"),
+        },
+      },
+    );
+    await user.click(screen.getByRole("button", { name: "识别粘贴内容" }));
+
+    expect(screen.getByDisplayValue("IB00166")).toBeTruthy();
+    expect(screen.getByDisplayValue("微积分2")).toBeTruthy();
+    expect(screen.getByDisplayValue("64")).toBeTruthy();
+    expect(recogniseTranscriptImage).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "一键全部通过审核" }));
+    await user.click(screen.getByRole("button", { name: "确认导入 1 条记录" }));
+    await screen.findByRole("heading", { name: "我的课程" });
+    expect(screen.getByText("微积分2")).toBeTruthy();
+  });
+
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();

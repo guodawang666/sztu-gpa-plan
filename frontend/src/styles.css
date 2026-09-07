@@ -372,6 +372,42 @@ textarea {
 .import-panel {
   max-width: 850px;
 }
+.import-method-heading {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin: 21px 0 12px;
+  color: #17335d;
+}
+.import-method-heading p {
+  margin: 3px 0 0;
+  color: #64748b;
+  font-size: 12px;
+}
+.method-number {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  color: #fff;
+  background: #2563eb;
+  font-size: 13px;
+  font-weight: 800;
+}
+.recommended-badge {
+  margin-left: auto;
+  padding: 4px 9px;
+  border-radius: 999px;
+  color: #1d4ed8;
+  background: #dbeafe;
+  font-size: 11px;
+  font-weight: 800;
+}
+.compact-action {
+  margin-top: 10px;
+}
 .dropzone {
   width: 100%;
   min-height: 175px;
@@ -388,6 +424,17 @@ textarea {
     border-color 0.16s ease,
     background 0.16s ease,
     transform 0.16s ease;
+}
+.structured-dropzone {
+  min-height: 140px;
+  margin-top: 10px;
+  background: #eef5ff;
+  border-color: #75a7f2;
+}
+.fallback-note {
+  margin: -5px 0 4px;
+  color: #64748b;
+  font-size: 12px;
 }
 .dropzone:hover {
   background: #edf5ff;
