@@ -7,6 +7,7 @@ import {
   GraduationCap,
   LayoutDashboard,
   Plus,
+  RefreshCw,
   Settings,
   Target,
   Trash2,
@@ -51,6 +52,7 @@ type Page =
   | "simulator"
   | "course-score"
   | "rules";
+type ImportMode = "APPEND" | "REPLACE";
 
 const STORAGE_KEY = "sztu-gpa-planner-attempts-v1";
 const emptySummary: GpaSummary = {
@@ -140,6 +142,7 @@ function StatusPill({ status }: { status: string }) {
 function App() {
   const [initialLoad] = useState(loadLocalAttempts);
   const [page, setPage] = useState<Page>("dashboard");
+  const [importMode, setImportMode] = useState<ImportMode>("APPEND");
   const [attempts, setAttempts] = useState<CourseAttempt[]>(
     initialLoad.attempts,
   );
@@ -191,6 +194,18 @@ function App() {
     setAttempts((current) => [...current, ...records]);
     setPage("courses");
   };
+  const openImport = (mode: ImportMode) => {
+    setImportMode(mode);
+    setPage("import");
+  };
+  const finishScreenshotImport = (records: CourseAttempt[]) => {
+    if (importMode === "REPLACE") {
+      setAttempts(records);
+      setPage("courses");
+      return;
+    }
+    addAttempts(records);
+  };
 
   return (
     <div className="app-shell">
@@ -208,7 +223,9 @@ function App() {
             <button
               className={page === itemPage ? "nav-item active" : "nav-item"}
               key={itemPage}
-              onClick={() => setPage(itemPage)}
+              onClick={() =>
+                itemPage === "import" ? openImport("APPEND") : setPage(itemPage)
+              }
             >
               <Icon size={18} />
               {label}
@@ -229,9 +246,16 @@ function App() {
           <div className="notice warning">计算服务提示：{summaryError}</div>
         )}
         {page === "dashboard" && (
-          <Dashboard summary={summary} counters={counters} onGo={setPage} />
+          <Dashboard
+            summary={summary}
+            counters={counters}
+            onGo={setPage}
+            onOpenImport={openImport}
+          />
         )}
-        {page === "import" && <ImportPage onImport={addAttempts} />}
+        {page === "import" && (
+          <ImportPage mode={importMode} onImport={finishScreenshotImport} />
+        )}
         {page === "courses" && (
           <CoursesPage
             attempts={attempts}
@@ -258,10 +282,12 @@ function Dashboard({
   summary,
   counters,
   onGo,
+  onOpenImport,
 }: {
   summary: GpaSummary;
   counters: Record<string, number>;
   onGo: (page: Page) => void;
+  onOpenImport: (mode: ImportMode) => void;
 }) {
   return (
     <>
@@ -271,10 +297,16 @@ function Dashboard({
           <h1>成绩总览</h1>
           <p>所有计算均保留原始分子、分母和考试记录。</p>
         </div>
-        <button className="primary" onClick={() => onGo("import")}>
-          <Upload size={17} />
-          导入成绩截图
-        </button>
+        <div className="header-actions">
+          <button className="secondary" onClick={() => onOpenImport("REPLACE")}>
+            <RefreshCw size={17} />
+            刷新全部成绩
+          </button>
+          <button className="primary" onClick={() => onOpenImport("APPEND")}>
+            <Upload size={17} />
+            导入成绩截图
+          </button>
+        </div>
       </header>
       <section className="hero-card">
         <div>
@@ -337,7 +369,7 @@ function Dashboard({
             <h2>开始使用</h2>
           </div>
           <div className="flow">
-            <button onClick={() => onGo("import")}>
+            <button onClick={() => onOpenImport("APPEND")}>
               <span>1</span>上传截图或粘贴 OCR 文本
               <ChevronRight size={16} />
             </button>
@@ -389,8 +421,10 @@ function StateRow({
 }
 
 function ImportPage({
+  mode,
   onImport,
 }: {
+  mode: ImportMode;
   onImport: (records: CourseAttempt[]) => void;
 }) {
   const [semester, setSemester] = useState("2025-2026-1");
@@ -582,6 +616,12 @@ function ImportPage({
           </p>
         </div>
       </header>
+      {mode === "REPLACE" && (
+        <div className="notice refresh-notice">
+          <strong>刷新模式：</strong>
+          旧成绩会一直保留，直到新的识别记录全部审核通过并完成导入；届时将整批替换旧数据。
+        </div>
+      )}
       <section className="panel import-panel">
         <div className="field-row">
           <label>
@@ -685,7 +725,8 @@ function ImportPage({
                 onClick={importRecords}
                 disabled={candidates.some((item) => !item.confirmed)}
               >
-                确认导入 {candidates.length} 条记录
+                {mode === "REPLACE" ? "替换旧数据并导入" : "确认导入"}{" "}
+                {candidates.length} 条记录
               </button>
             </div>
           </div>
