@@ -604,70 +604,74 @@ function ImportPage({
     setCandidates((items) =>
       items.map((item) => {
         if (item.id !== id) return item;
+        const editedItem = {
+          ...item,
+          issues: [],
+          needsReview: true,
+          confirmed: false,
+        };
         if (key === "credits")
           return {
-            ...item,
+            ...editedItem,
             credits: value.trim() === "" ? -1 : Number(value),
-            needsReview: true,
-            confirmed: false,
           };
         if (key === "score") {
           if (value.trim() === "") {
-            const { score: _removed, ...rest } = item;
-            return { ...rest, needsReview: true, confirmed: false };
+            const { score: _removed, ...rest } = editedItem;
+            return rest;
           }
           const score = Number(value);
           if (Number.isFinite(score) && score >= 0 && score <= 100) {
             const grade = gradeFromScore(score);
             return {
-              ...item,
+              ...editedItem,
               score,
               grade,
               gradePoint: gradePointForUiGrade(grade)!,
-              needsReview: true,
-              confirmed: false,
             };
           }
           return {
-            ...item,
+            ...editedItem,
             score,
-            needsReview: true,
-            confirmed: false,
           };
         }
         if (key === "gradePoint") {
           if (value.trim() === "") {
-            const { gradePoint: _removed, ...rest } = item;
-            return { ...rest, needsReview: true, confirmed: false };
+            const { gradePoint: _removed, ...rest } = editedItem;
+            return rest;
           }
           return {
-            ...item,
+            ...editedItem,
             gradePoint: Number(value),
-            needsReview: true,
-            confirmed: false,
           };
         }
         if (key === "courseCode" && value.trim() === "") {
-          const { courseCode: _removed, ...rest } = item;
-          return { ...rest, needsReview: true, confirmed: false };
+          const { courseCode: _removed, ...rest } = editedItem;
+          return rest;
         }
         if (key === "grade" && value.trim() === "") {
-          const { grade: _removed, gradePoint: _oldPoint, ...rest } = item;
-          return { ...rest, needsReview: true, confirmed: false };
+          const { grade: _removed, gradePoint: _oldPoint, ...rest } = editedItem;
+          return rest;
         }
         if (key === "grade") {
-          const { gradePoint: _oldPoint, ...rest } = item;
           const grade = value as UiGrade;
+          if (grade === "P" || grade === "NP") {
+            const {
+              gradePoint: _oldPoint,
+              score: _oldScore,
+              ...rest
+            } = editedItem;
+            return { ...rest, grade };
+          }
+          const { gradePoint: _oldPoint, ...rest } = editedItem;
           const gradePoint = gradePointForUiGrade(grade);
           return {
             ...rest,
             grade,
             ...(gradePoint === undefined ? {} : { gradePoint }),
-            needsReview: true,
-            confirmed: false,
           };
         }
-        return { ...item, [key]: value, needsReview: true, confirmed: false };
+        return { ...editedItem, [key]: value };
       }),
     );
   const importRecords = () => {
@@ -697,10 +701,16 @@ function ImportPage({
     );
   };
   const importPreview = useMemo(() => {
+    let importableRecords = 0;
     let gpaCredits = 0;
     let qualityPoints = 0;
     for (const item of candidates) {
-      const gradePoint = gradePointForUiGrade(item.grade);
+      if (!isImportableOcrCandidate(item)) continue;
+      importableRecords += 1;
+      const grade =
+        item.grade ??
+        (item.score !== undefined ? gradeFromScore(item.score) : undefined);
+      const gradePoint = gradePointForUiGrade(grade);
       if (
         gradePoint === undefined ||
         !Number.isFinite(item.credits) ||
@@ -711,6 +721,7 @@ function ImportPage({
       qualityPoints += item.credits * gradePoint;
     }
     return {
+      importableRecords,
       gpaCredits,
       qualityPoints,
       gpa: gpaCredits > 0 ? qualityPoints / gpaCredits : null,
@@ -895,7 +906,7 @@ function ImportPage({
             </div>
           </div>
           <div className="import-preview">
-            <span>记录 <strong>{candidates.length}</strong></span>
+            <span>可导入记录 <strong>{importPreview.importableRecords} / {candidates.length}</strong></span>
             <span>GPA 学分 <strong>{importPreview.gpaCredits.toFixed(1)}</strong></span>
             <span>质量分 <strong>{importPreview.qualityPoints.toFixed(1)}</strong></span>
             <span>预估 GPA <strong>{importPreview.gpa?.toFixed(2) ?? "—"}</strong></span>

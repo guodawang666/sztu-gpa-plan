@@ -273,6 +273,8 @@ export function isImportableOcrCandidate(candidate: OcrCandidate): boolean {
     expectedGradePoint === undefined ||
     candidate.gradePoint === undefined ||
     candidate.gradePoint === expectedGradePoint;
+  const passFailHasNoScore =
+    !isPassFail(candidate.grade) || candidate.score === undefined;
 
   return (
     courseName.length > 0 &&
@@ -282,6 +284,7 @@ export function isImportableOcrCandidate(candidate: OcrCandidate): boolean {
     scoreIsValidOrAbsent &&
     gradeMatchesScore &&
     gradePointMatches &&
+    passFailHasNoScore &&
     Number.isFinite(candidate.credits) &&
     candidate.credits >= 0 &&
     candidate.credits <= 100

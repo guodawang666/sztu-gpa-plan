@@ -167,6 +167,7 @@ describe('transcript OCR parser', () => {
     expect(isImportableOcrCandidate({ ...base, score: undefined, grade: '' as never })).toBe(false);
     expect(isImportableOcrCandidate({ ...base, grade: 'A' })).toBe(false);
     expect(isImportableOcrCandidate({ ...base, semester: '' })).toBe(false);
+    expect(isImportableOcrCandidate({ ...base, grade: 'P' })).toBe(false);
   });
 
   it('removes exact overlap rows while preserving distinct makeup attempts', () => {
