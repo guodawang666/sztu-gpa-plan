@@ -327,6 +327,34 @@ describe("grade screenshot import flow", () => {
     await screen.findByText("80.50");
   });
 
+  it("uses a directly entered cumulative GPA across dashboard and planning", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "当前数据" }));
+    await user.clear(screen.getByLabelText("当前累计 GPA"));
+    await user.type(screen.getByLabelText("当前累计 GPA"), "3.02");
+    await user.clear(screen.getByLabelText("当前 GPA 学分"));
+    await user.type(screen.getByLabelText("当前 GPA 学分"), "130");
+    await user.click(screen.getByRole("button", { name: "保存并使用累计数据" }));
+
+    await screen.findByRole("heading", { name: "成绩总览" });
+    expect(screen.getByText("3.02")).toBeTruthy();
+    expect(screen.getByText(/质量分 392.60 ÷ GPA 学分 130.00/)).toBeTruthy();
+    expect(screen.getByText("累计数据")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "目标规划" }));
+    await user.click(screen.getByRole("button", { name: "计算所需成绩" }));
+    await screen.findByText("3.32");
+    const targetCall = vi.mocked(fetch).mock.calls.find(([input]) =>
+      String(input).endsWith("/api/v1/gpa/target"),
+    );
+    expect(JSON.parse(String(targetCall?.[1]?.body))).toMatchObject({
+      currentQualityPoints: 392.6,
+      currentGpaCredits: 130,
+    });
+  });
+
   it("derives B+ and 3.5 from a manually entered score of 82", async () => {
     const user = userEvent.setup();
     render(<App />);

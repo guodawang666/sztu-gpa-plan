@@ -12,6 +12,7 @@ import {
   FileUp,
   GraduationCap,
   LayoutDashboard,
+  ListChecks,
   Plus,
   RefreshCw,
   Settings,
@@ -50,7 +51,13 @@ import {
   type UiExamType,
   type UiGrade,
 } from "./lib/ocr-parser";
-import { createBackupText, parseBackupText } from "./lib/storage";
+import {
+  createBackupText,
+  createDirectGpaBaseText,
+  parseBackupText,
+  parseDirectGpaBaseText,
+  type DirectGpaBase,
+} from "./lib/storage";
 import {
   parseStructuredGradeFile,
   parseStructuredGradeText,
@@ -58,6 +65,7 @@ import {
 
 type Page =
   | "dashboard"
+  | "current"
   | "import"
   | "courses"
   | "target"
@@ -65,8 +73,11 @@ type Page =
   | "course-score"
   | "rules";
 type ImportMode = "APPEND" | "REPLACE";
+type DataMode = "COURSES" | "DIRECT";
 
 const STORAGE_KEY = "sztu-gpa-planner-attempts-v1";
+const DIRECT_GPA_STORAGE_KEY = "sztu-gpa-planner-direct-gpa-v1";
+const DATA_MODE_STORAGE_KEY = "sztu-gpa-planner-data-mode-v1";
 const emptySummary: GpaSummary = {
   attemptedCredits: 0,
   earnedCredits: 0,
@@ -97,6 +108,7 @@ const navItems: Array<{
   icon: typeof LayoutDashboard;
 }> = [
   { page: "dashboard", label: "总览", icon: LayoutDashboard },
+  { page: "current", label: "当前数据", icon: ListChecks },
   { page: "import", label: "成绩导入", icon: FileImage },
   { page: "courses", label: "我的课程", icon: GraduationCap },
   { page: "target", label: "目标规划", icon: Target },
@@ -130,6 +142,29 @@ function loadLocalAttempts(): { attempts: CourseAttempt[]; warning: string } {
   }
 }
 
+function loadDirectGpaBase(): DirectGpaBase | null {
+  const stored = localStorage.getItem(DIRECT_GPA_STORAGE_KEY);
+  if (!stored) return null;
+  try {
+    return parseDirectGpaBaseText(stored);
+  } catch {
+    return null;
+  }
+}
+
+function summaryFromDirectBase(base: DirectGpaBase): GpaSummary {
+  return {
+    attemptedCredits: base.attemptedCredits ?? 0,
+    earnedCredits: base.earnedCredits ?? 0,
+    gpaCredits: base.gpaCredits,
+    qualityPoints: base.gpa * base.gpaCredits,
+    gpa: base.gpa,
+    displayGpa: base.gpa.toFixed(2),
+    contributions: [],
+    policyWarnings: [],
+  };
+}
+
 function newId(prefix = "attempt"): string {
   return typeof crypto?.randomUUID === "function"
     ? `${prefix}-${crypto.randomUUID()}`
@@ -158,7 +193,16 @@ function App() {
   const [attempts, setAttempts] = useState<CourseAttempt[]>(
     initialLoad.attempts,
   );
-  const [summary, setSummary] = useState<GpaSummary>(emptySummary);
+  const [courseSummary, setCourseSummary] = useState<GpaSummary>(emptySummary);
+  const [directBase, setDirectBase] = useState<DirectGpaBase | null>(
+    loadDirectGpaBase,
+  );
+  const [dataMode, setDataMode] = useState<DataMode>(() =>
+    localStorage.getItem(DATA_MODE_STORAGE_KEY) === "DIRECT"
+    && loadDirectGpaBase()
+      ? "DIRECT"
+      : "COURSES",
+  );
   const [summaryError, setSummaryError] = useState("");
   const [summaryLoading, setSummaryLoading] = useState(
     initialLoad.attempts.length > 0,
@@ -168,7 +212,7 @@ function App() {
     localStorage.setItem(STORAGE_KEY, createBackupText(attempts));
     let ignore = false;
     if (attempts.length === 0) {
-      setSummary(emptySummary);
+      setCourseSummary(emptySummary);
       setSummaryError("");
       setSummaryLoading(false);
       return undefined;
@@ -177,14 +221,14 @@ function App() {
     void calculateGpa(attempts)
       .then((result) => {
         if (!ignore) {
-          setSummary(result);
+          setCourseSummary(result);
           setSummaryError("");
           setSummaryLoading(false);
         }
       })
       .catch((error: unknown) => {
         if (!ignore) {
-          setSummary(emptySummary);
+          setCourseSummary(emptySummary);
           setSummaryError(
             error instanceof Error ? error.message : "无法连接计算服务。",
           );
@@ -195,6 +239,27 @@ function App() {
       ignore = true;
     };
   }, [attempts]);
+
+  useEffect(() => {
+    localStorage.setItem(DATA_MODE_STORAGE_KEY, dataMode);
+  }, [dataMode]);
+
+  useEffect(() => {
+    if (directBase) {
+      localStorage.setItem(
+        DIRECT_GPA_STORAGE_KEY,
+        createDirectGpaBaseText(directBase),
+      );
+    }
+  }, [directBase]);
+
+  const summary = useMemo(
+    () => dataMode === "DIRECT" && directBase
+      ? summaryFromDirectBase(directBase)
+      : courseSummary,
+    [courseSummary, dataMode, directBase],
+  );
+  const isSummarySyncing = dataMode === "COURSES" && summaryLoading;
 
   const counters = useMemo(
     () => ({
@@ -222,6 +287,7 @@ function App() {
 
   const addAttempts = (records: CourseAttempt[]) => {
     updateAttempts((current) => [...current, ...records]);
+    setDataMode("COURSES");
     setPage("courses");
   };
   const openImport = (mode: ImportMode) => {
@@ -232,6 +298,7 @@ function App() {
     updateAttempts((current) =>
       importMode === "REPLACE" ? records : [...current, ...records],
     );
+    setDataMode("COURSES");
     setPage("courses");
   };
 
@@ -276,18 +343,45 @@ function App() {
         {initialLoad.warning && (
           <div className="notice warning">{initialLoad.warning}</div>
         )}
-        {summaryError && (
+        {summaryError && dataMode === "COURSES" && (
           <div className="notice warning">计算服务提示：{summaryError}</div>
         )}
         {page === "dashboard" && (
           <Dashboard
             summary={summary}
-            isSyncing={summaryLoading}
-            attemptCount={attempts.length}
-            attemptedCredits={attemptedCredits}
-            counters={counters}
+            isSyncing={isSummarySyncing}
+            attemptCount={dataMode === "COURSES" ? attempts.length : null}
+            attemptedCredits={
+              dataMode === "DIRECT"
+                ? directBase?.attemptedCredits
+                : attemptedCredits
+            }
+            counters={
+              dataMode === "COURSES"
+                ? counters
+                : { failures: 0, passFail: 0, makeup: 0 }
+            }
+            dataMode={dataMode}
+            directBase={directBase}
             onGo={setPage}
             onOpenImport={openImport}
+          />
+        )}
+        {page === "current" && (
+          <CurrentDataPage
+            dataMode={dataMode}
+            directBase={directBase}
+            courseSummary={courseSummary}
+            courseCount={attempts.length}
+            onSave={(base) => {
+              setDirectBase(base);
+              setDataMode("DIRECT");
+              setPage("dashboard");
+            }}
+            onUseCourses={() => {
+              setDataMode("COURSES");
+              setPage("dashboard");
+            }}
           />
         )}
         {page === "import" && (
@@ -296,7 +390,7 @@ function App() {
         {page === "courses" && (
           <CoursesPage
             attempts={attempts}
-            summary={summary}
+            summary={courseSummary}
             isSyncing={summaryLoading}
             onAdd={addAttempts}
             onDelete={(id) =>
@@ -304,12 +398,15 @@ function App() {
                 items.filter((item) => item.id !== id),
               )
             }
-            onReplace={updateAttempts}
+            onReplace={(records) => {
+              updateAttempts(records);
+              setDataMode("COURSES");
+            }}
           />
         )}
         {page === "target" && <TargetPage summary={summary} />}
         {page === "simulator" && (
-          <SimulatorPage attempts={attempts} summary={summary} />
+          <SimulatorPage summary={summary} />
         )}
         {page === "course-score" && <CourseScorePage />}
         {page === "rules" && <RulesPage />}
@@ -324,14 +421,18 @@ function Dashboard({
   attemptCount,
   attemptedCredits,
   counters,
+  dataMode,
+  directBase,
   onGo,
   onOpenImport,
 }: {
   summary: GpaSummary;
   isSyncing: boolean;
-  attemptCount: number;
-  attemptedCredits: number;
+  attemptCount: number | null;
+  attemptedCredits: number | undefined;
   counters: Record<string, number>;
+  dataMode: DataMode;
+  directBase: DirectGpaBase | null;
   onGo: (page: Page) => void;
   onOpenImport: (mode: ImportMode) => void;
 }) {
@@ -341,7 +442,12 @@ function Dashboard({
         <div>
           <p className="eyebrow">学习规划工具</p>
           <h1>成绩总览</h1>
-          <p>所有计算均保留原始分子、分母和考试记录。</p>
+          <p>
+            当前使用：
+            <strong className="source-label">
+              {dataMode === "DIRECT" ? "累计数据" : "逐门课程"}
+            </strong>
+          </p>
         </div>
         <div className="header-actions">
           <button className="secondary" onClick={() => onOpenImport("REPLACE")}>
@@ -385,14 +491,25 @@ function Dashboard({
       <section className="metric-grid">
         <Metric
           label="已获得学分"
-          value={isSyncing ? "—" : summary.earnedCredits.toFixed(1)}
+          value={
+            isSyncing
+            || (dataMode === "DIRECT" && directBase?.earnedCredits === undefined)
+              ? "—"
+              : summary.earnedCredits.toFixed(1)
+          }
         />
         <Metric
           label="GPA 计算学分"
           value={isSyncing ? "—" : summary.gpaCredits.toFixed(1)}
         />
-        <Metric label="考试记录" value={String(attemptCount)} />
-        <Metric label="所修总学分" value={attemptedCredits.toFixed(1)} />
+        <Metric
+          label="考试记录"
+          value={attemptCount === null ? "—" : String(attemptCount)}
+        />
+        <Metric
+          label="所修总学分"
+          value={attemptedCredits === undefined ? "—" : attemptedCredits.toFixed(1)}
+        />
       </section>
       <section className="two-column">
         <div className="panel">
@@ -425,16 +542,20 @@ function Dashboard({
             <h2>开始使用</h2>
           </div>
           <div className="flow">
+            <button onClick={() => onGo("current")}>
+              <span>1</span>直接填写当前 GPA 和学分
+              <ChevronRight size={16} />
+            </button>
             <button onClick={() => onOpenImport("APPEND")}>
-              <span>1</span>复制粘贴或导入成绩单
+              <span>2</span>或复制粘贴、导入成绩单
               <ChevronRight size={16} />
             </button>
             <button onClick={() => onGo("courses")}>
-              <span>2</span>核对并维护考试记录
+              <span>3</span>核对并维护考试记录
               <ChevronRight size={16} />
             </button>
             <button onClick={() => onGo("target")}>
-              <span>3</span>设置目标并模拟未来成绩
+              <span>4</span>设置目标并模拟未来成绩
               <ChevronRight size={16} />
             </button>
           </div>
@@ -473,6 +594,192 @@ function StateRow({
       {label}
       <strong>{value}</strong>
     </div>
+  );
+}
+
+function CurrentDataPage({
+  dataMode,
+  directBase,
+  courseSummary,
+  courseCount,
+  onSave,
+  onUseCourses,
+}: {
+  dataMode: DataMode;
+  directBase: DirectGpaBase | null;
+  courseSummary: GpaSummary;
+  courseCount: number;
+  onSave: (base: DirectGpaBase) => void;
+  onUseCourses: () => void;
+}) {
+  const [gpa, setGpa] = useState(directBase?.gpa.toString() ?? "3.02");
+  const [gpaCredits, setGpaCredits] = useState(
+    directBase?.gpaCredits.toString() ?? "130",
+  );
+  const [earnedCredits, setEarnedCredits] = useState(
+    directBase?.earnedCredits?.toString() ?? "",
+  );
+  const [attemptedCredits, setAttemptedCredits] = useState(
+    directBase?.attemptedCredits?.toString() ?? "",
+  );
+  const [error, setError] = useState("");
+  const numericGpa = numberOrUndefined(gpa);
+  const numericGpaCredits = numberOrUndefined(gpaCredits);
+  const qualityPoints =
+    numericGpa !== undefined && numericGpaCredits !== undefined
+      ? numericGpa * numericGpaCredits
+      : null;
+
+  const submit = (event: React.FormEvent) => {
+    event.preventDefault();
+    const earned = numberOrUndefined(earnedCredits);
+    const attempted = numberOrUndefined(attemptedCredits);
+    if (
+      numericGpa === undefined
+      || numericGpa < 0
+      || numericGpa > 4.5
+      || numericGpaCredits === undefined
+      || numericGpaCredits <= 0
+    ) {
+      setError("当前 GPA 必须在 0–4.5 之间，GPA 学分必须大于 0。");
+      return;
+    }
+    if (
+      (earned !== undefined && earned < 0)
+      || (attempted !== undefined && attempted < 0)
+    ) {
+      setError("学分不能是负数。");
+      return;
+    }
+    if (earned !== undefined && attempted !== undefined && attempted < earned) {
+      setError("所修总学分不能小于已获得学分。");
+      return;
+    }
+    onSave({
+      gpa: numericGpa,
+      gpaCredits: numericGpaCredits,
+      updatedAt: new Date().toISOString(),
+      ...(earned === undefined ? {} : { earnedCredits: earned }),
+      ...(attempted === undefined ? {} : { attemptedCredits: attempted }),
+    });
+  };
+
+  return (
+    <>
+      <header className="page-header">
+        <div>
+          <p className="eyebrow">快捷开始</p>
+          <h1>当前数据</h1>
+          <p>无需逐门录入，直接使用教务系统显示的累计 GPA 和 GPA 学分。</p>
+        </div>
+      </header>
+      <section className="two-column direct-data-layout">
+        <form className="panel direct-data-form" onSubmit={submit}>
+          <div className="panel-title">
+            <div>
+              <h2>录入累计数据</h2>
+              <p>两个必填数字就能开始目标规划和学期模拟。</p>
+            </div>
+            {dataMode === "DIRECT" && (
+              <span className="verified">当前使用中</span>
+            )}
+          </div>
+          <div className="direct-fields">
+            <label>
+              当前累计 GPA
+              <input
+                aria-label="当前累计 GPA"
+                type="number"
+                min="0"
+                max="4.5"
+                step="0.01"
+                value={gpa}
+                onChange={(event) => setGpa(event.target.value)}
+              />
+            </label>
+            <label>
+              当前 GPA 学分
+              <input
+                aria-label="当前 GPA 学分"
+                type="number"
+                min="0.1"
+                step="0.1"
+                value={gpaCredits}
+                onChange={(event) => setGpaCredits(event.target.value)}
+              />
+            </label>
+            <label>
+              已获得学分（可选）
+              <input
+                type="number"
+                min="0"
+                step="0.1"
+                placeholder="例如 127"
+                value={earnedCredits}
+                onChange={(event) => setEarnedCredits(event.target.value)}
+              />
+            </label>
+            <label>
+              所修总学分（可选）
+              <input
+                type="number"
+                min="0"
+                step="0.1"
+                placeholder="例如 131"
+                value={attemptedCredits}
+                onChange={(event) => setAttemptedCredits(event.target.value)}
+              />
+            </label>
+          </div>
+          <div className="formula-preview">
+            <span>系统使用的当前质量分</span>
+            <strong>{qualityPoints === null ? "—" : qualityPoints.toFixed(2)}</strong>
+            <small>当前 GPA × GPA 学分，不把 GPA 当作单门课程绩点。</small>
+          </div>
+          {error && <div className="notice warning">{error}</div>}
+          <button className="primary" type="submit">保存并使用累计数据</button>
+        </form>
+        <section className="panel source-switcher">
+          <h2>数据来源</h2>
+          <p>
+            两种方式不会混在一起计算，因此不会重复计入学分。切换数据来源不会删除另一边的数据。
+          </p>
+          <div
+            className={
+              dataMode === "DIRECT"
+                ? "source-option active-source"
+                : "source-option"
+            }
+          >
+            <strong>累计数据</strong>
+            <span>
+              {directBase
+                ? `${directBase.gpa.toFixed(2)} / ${directBase.gpaCredits.toFixed(1)} 学分`
+                : "尚未保存"}
+            </span>
+          </div>
+          <div
+            className={
+              dataMode === "COURSES"
+                ? "source-option active-source"
+                : "source-option"
+            }
+          >
+            <strong>逐门课程</strong>
+            <span>{courseCount} 条记录 · GPA {courseSummary.displayGpa ?? "—"}</span>
+          </div>
+          <button
+            className="secondary"
+            type="button"
+            disabled={courseCount === 0}
+            onClick={onUseCourses}
+          >
+            改用逐门课程计算
+          </button>
+          {courseCount === 0 && <p className="muted">还没有逐门课程记录。</p>}
+        </section>
+      </section>
+    </>
   );
 }
 
@@ -1457,7 +1764,7 @@ function TargetPage({ summary }: { summary: GpaSummary }) {
   const calculate = async () => {
     if (summary.gpaCredits <= 0) {
       setPlan(null);
-      setError("请先录入至少一门计入 GPA 的课程。");
+      setError("请先录入当前累计 GPA 和学分，或导入至少一门计入 GPA 的课程。");
       return;
     }
     try {
@@ -1559,10 +1866,8 @@ function TargetPage({ summary }: { summary: GpaSummary }) {
 }
 
 function SimulatorPage({
-  attempts,
   summary,
 }: {
-  attempts: CourseAttempt[];
   summary: GpaSummary;
 }) {
   const [courses, setCourses] = useState([
@@ -1597,7 +1902,7 @@ function SimulatorPage({
       grade: course.grade,
       examType: "NORMAL" as UiExamType,
     }));
-    void calculateGpa([...attempts, ...future])
+    void calculateGpa(future)
       .then((result) => {
         if (!ignore) {
           setProjected(result);
@@ -1615,7 +1920,7 @@ function SimulatorPage({
     return () => {
       ignore = true;
     };
-  }, [attempts, courses]);
+  }, [courses]);
   const add = () =>
     setCourses((items) => [
       ...items,
@@ -1642,6 +1947,13 @@ function SimulatorPage({
     (sum, item) => sum + item.qualityPoints,
     0,
   );
+  const projectedCumulativeGpa =
+    projected && summary.gpaCredits + futureCredits > 0
+      ? (
+          (summary.qualityPoints + futurePoints)
+          / (summary.gpaCredits + futureCredits)
+        ).toFixed(2)
+      : null;
   return (
     <>
       <header className="page-header">
@@ -1717,7 +2029,7 @@ function SimulatorPage({
             </span>
             <ChevronRight size={16} />
             <span>
-              预计累计 GPA <strong>{projected?.displayGpa ?? "—"}</strong>
+              预计累计 GPA <strong>{projectedCumulativeGpa ?? "—"}</strong>
             </span>
           </div>
           <p className="muted">

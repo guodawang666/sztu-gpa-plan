@@ -114,6 +114,10 @@ button {
   color: #64748b;
   font-size: 14px;
 }
+.source-label {
+  margin-left: 6px;
+  color: #1d4ed8;
+}
 .eyebrow {
   text-transform: uppercase;
   letter-spacing: 0.12em;
@@ -261,6 +265,57 @@ button {
 .panel p {
   color: #64748b;
   font-size: 13px;
+}
+.direct-data-layout {
+  align-items: start;
+}
+.direct-data-form {
+  display: grid;
+  gap: 18px;
+}
+.direct-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.formula-preview {
+  display: grid;
+  gap: 5px;
+  padding: 16px;
+  border-radius: 8px;
+  color: #1e3a5f;
+  background: #eef5ff;
+}
+.formula-preview span,
+.formula-preview small,
+.source-option span {
+  color: #64748b;
+  font-size: 12px;
+}
+.formula-preview strong {
+  color: #1d4ed8;
+  font-size: 30px;
+}
+.source-switcher {
+  display: grid;
+  gap: 12px;
+}
+.source-option {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #dce7f7;
+  border-radius: 8px;
+  background: #fff;
+}
+.active-source {
+  border-color: #93b9f5;
+  background: #f5f8ff;
+}
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 .panel-title {
   display: flex;
@@ -796,5 +851,8 @@ td select {
   }
   .import-preview {
     grid-template-columns: 1fr 1fr;
+  }
+  .direct-fields {
+    grid-template-columns: 1fr;
   }
 }
